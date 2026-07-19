@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod autopilot;
 pub mod copilot;
 pub mod core;
 pub mod emu;

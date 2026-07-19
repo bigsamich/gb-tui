@@ -1,11 +1,97 @@
 use crate::audio::AudioRing;
 use crate::core::{Button, EmulatorCore};
+use crate::gamestate::GameState;
 use crate::persist::{BatterySaver, state_path};
+use anyhow::{Context, Result, anyhow, bail};
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+
+/// One scripted input operation (shared by gb-agent and the autopilot).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Op {
+    Hold(Button, u32),
+    Wait(u32),
+    MashA(u32),
+}
+
+/// Parse an input script like `"up:16 a:8 wait:30 mash-a:5"`.
+pub fn parse_script(script: &str) -> Result<Vec<Op>> {
+    let mut ops = Vec::new();
+    for tok in script.split_whitespace() {
+        let (name, n) = tok
+            .split_once(':')
+            .ok_or_else(|| anyhow!("bad token (want name:count): {tok}"))?;
+        let n: u32 = n.parse().with_context(|| format!("bad count in {tok}"))?;
+        let op = match name.to_ascii_lowercase().as_str() {
+            "up" => Op::Hold(Button::Up, n),
+            "down" => Op::Hold(Button::Down, n),
+            "left" => Op::Hold(Button::Left, n),
+            "right" => Op::Hold(Button::Right, n),
+            "a" => Op::Hold(Button::A, n),
+            "b" => Op::Hold(Button::B, n),
+            "start" => Op::Hold(Button::Start, n),
+            "select" => Op::Hold(Button::Select, n),
+            "wait" => Op::Wait(n),
+            "mash-a" => Op::MashA(n),
+            other => bail!("unknown op: {other}"),
+        };
+        ops.push(op);
+    }
+    Ok(ops)
+}
+
+/// Button changes to apply before running one frame.
+#[derive(Clone, Debug)]
+struct FrameAct {
+    pre: Vec<(Button, bool)>,
+}
+
+/// Expand ops into per-frame actions (press/hold/release/settle semantics
+/// identical to gb-agent's headless executor).
+fn expand_ops(ops: &[Op]) -> VecDeque<FrameAct> {
+    let mut out = VecDeque::new();
+    let none = || FrameAct { pre: vec![] };
+    for op in ops {
+        match op {
+            Op::Hold(b, n) => {
+                out.push_back(FrameAct {
+                    pre: vec![(*b, true)],
+                });
+                for _ in 1..*n {
+                    out.push_back(none());
+                }
+                out.push_back(FrameAct {
+                    pre: vec![(*b, false)],
+                });
+                out.push_back(none()); // 2 settle frames total
+            }
+            Op::Wait(n) => {
+                for _ in 0..*n {
+                    out.push_back(none());
+                }
+            }
+            Op::MashA(n) => {
+                for _ in 0..*n {
+                    out.push_back(FrameAct {
+                        pre: vec![(Button::A, true)],
+                    });
+                    out.push_back(none());
+                    out.push_back(FrameAct {
+                        pre: vec![(Button::A, false)],
+                    });
+                    for _ in 0..15 {
+                        out.push_back(none());
+                    }
+                }
+            }
+        }
+    }
+    out
+}
 
 #[derive(Debug)]
 pub enum EmuCommand {
@@ -15,6 +101,10 @@ pub enum EmuCommand {
     FrameStep,
     SaveState(u8),
     LoadState(u8),
+    /// Queue scripted ops for frame-accurate execution inside the emu loop.
+    RunOps(Vec<Op>),
+    /// Drop any queued/active ops (autopilot abort).
+    AbortOps,
     Stop,
 }
 
@@ -33,6 +123,12 @@ pub struct SharedState {
     pub fps: f32,
     pub paused: bool,
     pub turbo: bool,
+    /// Typed game state, refreshed periodically and at op-batch completion.
+    pub game_state: Option<GameState>,
+    /// True while scripted ops are executing.
+    pub ops_active: bool,
+    /// Completed op-batch counter (for run_ops completion detection).
+    pub ops_done: u64,
 }
 
 pub struct EmuConfig {
@@ -49,6 +145,23 @@ impl Default for EmuConfig {
             ring: None,
             rom_path: None,
         }
+    }
+}
+
+/// Cloneable control handle for threads other than the UI (autopilot, planner).
+#[derive(Clone)]
+pub struct EmuController {
+    tx: Sender<EmuCommand>,
+    shared: Arc<Mutex<SharedState>>,
+}
+
+impl EmuController {
+    pub fn send(&self, cmd: EmuCommand) {
+        let _ = self.tx.send(cmd);
+    }
+
+    pub fn shared(&self) -> Arc<Mutex<SharedState>> {
+        Arc::clone(&self.shared)
     }
 }
 
@@ -86,12 +199,21 @@ impl EmuHandle {
         Arc::clone(&self.shared)
     }
 
+    pub fn controller(&self) -> EmuController {
+        EmuController {
+            tx: self.tx.clone(),
+            shared: Arc::clone(&self.shared),
+        }
+    }
+
     /// Stops the thread and joins it; the loop flushes battery RAM on exit.
     pub fn stop(self) {
         let _ = self.tx.send(EmuCommand::Stop);
         let _ = self.join.join();
     }
 }
+
+const STATE_REFRESH_FRAMES: u64 = 30;
 
 fn run_loop(
     mut core: Box<dyn EmulatorCore>,
@@ -109,6 +231,8 @@ fn run_loop(
     let mut fps_window_start = Instant::now();
     let mut fps_frames: u32 = 0;
     let mut fps = 0.0f32;
+    let mut frame_count: u64 = 0;
+    let mut op_frames: VecDeque<FrameAct> = VecDeque::new();
 
     'outer: loop {
         // Drain pending commands (block while paused with nothing to do).
@@ -141,6 +265,29 @@ fn run_loop(
                     next_deadline = Instant::now() + cfg.frame_duration;
                 }
                 EmuCommand::FrameStep => step_once = true,
+                EmuCommand::RunOps(ops) => {
+                    op_frames.extend(expand_ops(&ops));
+                    shared.lock().unwrap().ops_active = true;
+                }
+                EmuCommand::AbortOps => {
+                    op_frames.clear();
+                    // Release everything a script might have left held.
+                    for b in [
+                        Button::Up,
+                        Button::Down,
+                        Button::Left,
+                        Button::Right,
+                        Button::A,
+                        Button::B,
+                        Button::Start,
+                        Button::Select,
+                    ] {
+                        core.set_button(b, false);
+                    }
+                    let mut s = shared.lock().unwrap();
+                    s.ops_active = false;
+                    s.ops_done += 1;
+                }
                 EmuCommand::SaveState(slot) => {
                     let msg = match &cfg.rom_path {
                         None => Err("no ROM path for save state".to_string()),
@@ -185,7 +332,21 @@ fn run_loop(
         }
         step_once = false;
 
+        // Apply any scripted button changes for this frame.
+        if let Some(act) = op_frames.pop_front() {
+            for (b, pressed) in act.pre {
+                core.set_button(b, pressed);
+            }
+            if op_frames.is_empty() {
+                let mut s = shared.lock().unwrap();
+                s.ops_active = false;
+                s.ops_done += 1;
+                s.game_state = Some(GameState::read(core.as_ref()));
+            }
+        }
+
         core.run_frame();
+        frame_count += 1;
         fps_frames += 1;
         if fps_window_start.elapsed() >= Duration::from_secs(1) {
             fps = fps_frames as f32 / fps_window_start.elapsed().as_secs_f32();
@@ -201,6 +362,9 @@ fn run_loop(
             s.width = frame.width;
             s.height = frame.height;
             s.seq += 1;
+            if frame_count % STATE_REFRESH_FRAMES == 0 {
+                s.game_state = Some(GameState::read(core.as_ref()));
+            }
         }
 
         // Audio + pacing.
@@ -248,6 +412,7 @@ mod tests {
 
     struct FakeCore {
         frames: Arc<AtomicU64>,
+        presses: Arc<AtomicU64>,
         state: Vec<u8>,
     }
 
@@ -266,7 +431,11 @@ mod tests {
                 rgb: vec![n; 12],
             }
         }
-        fn set_button(&mut self, _: Button, _: bool) {}
+        fn set_button(&mut self, _: Button, pressed: bool) {
+            if pressed {
+                self.presses.fetch_add(1, Ordering::SeqCst);
+            }
+        }
         fn drain_audio(&mut self, out: &mut Vec<i16>) {
             out.extend([0i16; 64]);
         }
@@ -293,31 +462,38 @@ mod tests {
         }
     }
 
-    fn spawn_fake() -> (EmuHandle, Arc<AtomicU64>) {
+    fn spawn_fake() -> (EmuHandle, Arc<AtomicU64>, Arc<AtomicU64>) {
         let frames = Arc::new(AtomicU64::new(0));
+        let presses = Arc::new(AtomicU64::new(0));
         let core = FakeCore {
             frames: Arc::clone(&frames),
+            presses: Arc::clone(&presses),
             state: vec![7, 7, 7],
         };
-        (EmuHandle::spawn(Box::new(core), fast_cfg()), frames)
+        (
+            EmuHandle::spawn(Box::new(core), fast_cfg()),
+            frames,
+            presses,
+        )
     }
 
     #[test]
     fn runs_frames_and_publishes() {
-        let (handle, frames) = spawn_fake();
+        let (handle, frames, _) = spawn_fake();
         std::thread::sleep(Duration::from_millis(100));
         assert!(frames.load(Ordering::SeqCst) > 10);
         let shared = handle.shared();
         let s = shared.lock().unwrap();
         assert!(s.seq > 10);
         assert_eq!(s.rgb.len(), 12);
+        assert!(s.game_state.is_some());
         drop(s);
         handle.stop();
     }
 
     #[test]
     fn pause_stops_frames_and_frame_step_advances_one() {
-        let (handle, frames) = spawn_fake();
+        let (handle, frames, _) = spawn_fake();
         handle.send(EmuCommand::TogglePause);
         std::thread::sleep(Duration::from_millis(50));
         let n1 = frames.load(Ordering::SeqCst);
@@ -336,7 +512,7 @@ mod tests {
 
     #[test]
     fn stop_joins_cleanly() {
-        let (handle, frames) = spawn_fake();
+        let (handle, frames, _) = spawn_fake();
         std::thread::sleep(Duration::from_millis(20));
         handle.stop();
         let n = frames.load(Ordering::SeqCst);
@@ -346,11 +522,43 @@ mod tests {
 
     #[test]
     fn save_state_without_rom_path_emits_error_event() {
-        let (handle, _) = spawn_fake();
+        let (handle, _, _) = spawn_fake();
         handle.send(EmuCommand::SaveState(1));
         std::thread::sleep(Duration::from_millis(50));
         let ev = handle.events().try_recv().expect("expected an event");
         assert!(matches!(ev, EmuEvent::Error(_)));
         handle.stop();
+    }
+
+    #[test]
+    fn run_ops_executes_and_signals_done() {
+        let (handle, _, presses) = spawn_fake();
+        let ctl = handle.controller();
+        let shared = ctl.shared();
+        let before = shared.lock().unwrap().ops_done;
+        ctl.send(EmuCommand::RunOps(parse_script("a:4 wait:10 a:4").unwrap()));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            {
+                let s = shared.lock().unwrap();
+                if s.ops_done > before && !s.ops_active {
+                    break;
+                }
+            }
+            assert!(Instant::now() < deadline, "ops never completed");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(presses.load(Ordering::SeqCst), 2); // two A presses
+        handle.stop();
+    }
+
+    #[test]
+    fn parse_script_round_trip() {
+        let ops = parse_script("up:16 mash-a:2 wait:5").unwrap();
+        assert_eq!(
+            ops,
+            vec![Op::Hold(Button::Up, 16), Op::MashA(2), Op::Wait(5)]
+        );
+        assert!(parse_script("fly:1").is_err());
     }
 }

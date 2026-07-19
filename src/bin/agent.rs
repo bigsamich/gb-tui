@@ -17,43 +17,12 @@
 use anyhow::{Context, Result, anyhow, bail};
 use gb_tui::core::gb::GbCore;
 use gb_tui::core::{Button, EmulatorCore};
+use gb_tui::emu::{Op, parse_script};
 use std::path::PathBuf;
 
 const FRAME_W: usize = 160;
 const FRAME_H: usize = 144;
 const SCALE: usize = 3;
-
-#[derive(Debug, PartialEq)]
-enum Op {
-    Hold(Button, u32),
-    Wait(u32),
-    MashA(u32),
-}
-
-fn parse_script(script: &str) -> Result<Vec<Op>> {
-    let mut ops = Vec::new();
-    for tok in script.split_whitespace() {
-        let (name, n) = tok
-            .split_once(':')
-            .ok_or_else(|| anyhow!("bad token (want name:count): {tok}"))?;
-        let n: u32 = n.parse().with_context(|| format!("bad count in {tok}"))?;
-        let op = match name.to_ascii_lowercase().as_str() {
-            "up" => Op::Hold(Button::Up, n),
-            "down" => Op::Hold(Button::Down, n),
-            "left" => Op::Hold(Button::Left, n),
-            "right" => Op::Hold(Button::Right, n),
-            "a" => Op::Hold(Button::A, n),
-            "b" => Op::Hold(Button::B, n),
-            "start" => Op::Hold(Button::Start, n),
-            "select" => Op::Hold(Button::Select, n),
-            "wait" => Op::Wait(n),
-            "mash-a" => Op::MashA(n),
-            other => bail!("unknown op: {other}"),
-        };
-        ops.push(op);
-    }
-    Ok(ops)
-}
 
 fn run_frames(core: &mut GbCore, n: u32) {
     for _ in 0..n {
