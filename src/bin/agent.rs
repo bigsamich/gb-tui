@@ -103,6 +103,34 @@ struct Args {
     shot: Option<PathBuf>,
     peek: bool,
     peekhex: Option<(u16, u16)>,
+    journal: Option<PathBuf>,
+}
+
+/// `gb-agent export --journal <dir> --format advice|policy --out <file>`
+fn run_export() -> Result<()> {
+    let mut journal = None;
+    let mut format = String::from("advice");
+    let mut out_path = None;
+    let mut it = std::env::args().skip(2);
+    while let Some(a) = it.next() {
+        let mut val = || it.next().ok_or_else(|| anyhow!("missing value for {a}"));
+        match a.as_str() {
+            "--journal" => journal = Some(PathBuf::from(val()?)),
+            "--format" => format = val()?,
+            "--out" => out_path = Some(PathBuf::from(val()?)),
+            other => bail!("unknown export arg: {other}"),
+        }
+    }
+    let journal = journal.ok_or_else(|| anyhow!("export requires --journal <dir>"))?;
+    let out_path = out_path.ok_or_else(|| anyhow!("export requires --out <file>"))?;
+    let mut out = std::fs::File::create(&out_path)?;
+    let n = match format.as_str() {
+        "advice" => gb_tui::export::export_advice(&journal, &mut out)?,
+        "policy" => gb_tui::export::export_policy(&journal, &mut out)?,
+        other => bail!("unknown format {other} (want advice|policy)"),
+    };
+    println!("exported {n} {format} records -> {}", out_path.display());
+    Ok(())
 }
 
 fn parse_args() -> Result<Args> {
@@ -114,6 +142,7 @@ fn parse_args() -> Result<Args> {
         shot: None,
         peek: false,
         peekhex: None,
+        journal: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -125,6 +154,7 @@ fn parse_args() -> Result<Args> {
             "--script" => args.script = val()?,
             "--shot" => args.shot = Some(PathBuf::from(val()?)),
             "--peek" => args.peek = true,
+            "--journal" => args.journal = Some(PathBuf::from(val()?)),
             "--peekhex" => {
                 let v = val()?;
                 let (a, l) = v
@@ -143,6 +173,9 @@ fn parse_args() -> Result<Args> {
 }
 
 fn main() -> Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("export") {
+        return run_export();
+    }
     let args = parse_args()?;
     let ops = parse_script(&args.script)?;
 
@@ -175,6 +208,20 @@ fn main() -> Result<()> {
             .map(|i| format!("{:02x}", core.peek(addr.wrapping_add(i))))
             .collect();
         println!("hex@{addr:#06x}: {}", bytes.join(" "));
+    }
+    if let Some(dir) = &args.journal {
+        use gb_tui::gamestate::GameState;
+        use gb_tui::journal::{EventKind, Journal, Source};
+        let mut j = Journal::create(dir)?;
+        let gs = GameState::read(&core);
+        j.log(
+            Source::Agent,
+            frames,
+            gs.to_json(),
+            EventKind::Note {
+                text: format!("script: {}", args.script),
+            },
+        );
     }
     println!("ok: ran {frames} frames, state -> {}", args.state.display());
     Ok(())
