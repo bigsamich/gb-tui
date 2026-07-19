@@ -121,7 +121,8 @@ mod tests {
 
     #[test]
     fn widget_upscales_nearest_neighbor() {
-        // 1x2 frame (red over blue) into a 4x2 area
+        // 1x2 frame (red over blue) into a 4x2 area: scale 2 -> 2x2 cells
+        // letterboxed to columns 1..3; each source pixel spans a full cell.
         let rgb = [255, 0, 0, /**/ 0, 0, 255];
         let area = Rect::new(0, 0, 4, 2);
         let mut buf = Buffer::empty(area);
@@ -131,10 +132,12 @@ mod tests {
             height: 2,
         }
         .render(area, &mut buf);
-        let top = &buf[(0, 0)];
+        // outside the letterbox: untouched
+        assert_eq!(buf[(0, 0)].fg, Color::Reset);
+        let top = &buf[(1, 0)];
         assert_eq!(top.fg, Color::Rgb(255, 0, 0));
         assert_eq!(top.bg, Color::Rgb(255, 0, 0));
-        let bot = &buf[(0, 1)];
+        let bot = &buf[(1, 1)];
         assert_eq!(bot.fg, Color::Rgb(0, 0, 255));
         assert_eq!(bot.bg, Color::Rgb(0, 0, 255));
     }
