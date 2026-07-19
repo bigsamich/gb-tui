@@ -5,5 +5,6 @@ pub mod emu;
 pub mod gamestate;
 pub mod input;
 pub mod journal;
+pub mod mapdata;
 pub mod persist;
 pub mod ui;
