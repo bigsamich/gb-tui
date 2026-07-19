@@ -1,0 +1,4 @@
+/target
+test-roms/pokemon-red.gb
+*.sav
+*.st[1-4]
