@@ -650,6 +650,7 @@ dependencies = [
  "anyhow",
  "boytacean",
  "cpal",
+ "libc",
  "ratatui",
  "tempfile",
 ]

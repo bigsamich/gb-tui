@@ -39,6 +39,7 @@ pub struct App {
     kitty: bool,
     toasts: Vec<(String, Instant)>,
     quit: bool,
+    needs_clear: bool,
 }
 
 impl App {
@@ -55,12 +56,17 @@ impl App {
             kitty,
             toasts: Vec::new(),
             quit: false,
+            needs_clear: false,
         };
         if start.is_file() {
             app.start_game(&start);
         }
         while !app.quit {
             app.tick();
+            if app.needs_clear {
+                terminal.clear()?;
+                app.needs_clear = false;
+            }
             terminal.draw(|f| app.draw(f))?;
             if event::poll(Duration::from_millis(8))? {
                 let ev = event::read()?;
@@ -107,6 +113,7 @@ impl App {
             muted,
             rom_path: rom_path.to_path_buf(),
         }));
+        self.needs_clear = true;
     }
 
     fn end_game(&mut self) {
@@ -121,6 +128,7 @@ impl App {
                 .to_path_buf();
             session.handle.stop();
             self.screen = Screen::Browser(Browser::new(dir));
+            self.needs_clear = true;
         }
     }
 
