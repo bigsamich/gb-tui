@@ -1,12 +1,16 @@
 use crate::audio::AudioOutput;
+use crate::autopilot::Driver;
+use crate::autopilot::planner::{PlannerEvent, run_planner};
+use crate::copilot::{Config, Copilot, CopilotMsg, HintRequest, ask_blocking};
 use crate::core::EmulatorCore;
 use crate::core::gb::GbCore;
 use crate::emu::{EmuCommand, EmuConfig, EmuEvent, EmuHandle};
 use crate::input::{KeyTracker, map_key};
+use crate::journal::{EventKind, Journal, Source};
 use crate::persist;
 use crate::ui::browser::Browser;
 use crate::ui::screen::GameScreen;
-use crate::ui::status::{StatusInfo, status_lines, zoom_hint};
+use crate::ui::status::{StatusInfo, status_lines, wrap_panel_lines, zoom_hint};
 use anyhow::Result;
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
@@ -15,6 +19,9 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Receiver;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const TOAST_TTL: Duration = Duration::from_secs(3);
@@ -33,6 +40,16 @@ enum Screen {
     Game(Box<GameSession>),
 }
 
+enum UiMode {
+    Play,
+    HintInput(String),
+    GoalInput(String),
+    Autopilot {
+        abort: Arc<AtomicBool>,
+        rx: Receiver<PlannerEvent>,
+    },
+}
+
 pub struct App {
     screen: Screen,
     audio: Option<AudioOutput>,
@@ -40,6 +57,14 @@ pub struct App {
     toasts: Vec<(String, Instant)>,
     quit: bool,
     needs_clear: bool,
+    cfg: Config,
+    copilot: Copilot,
+    journal: Arc<Mutex<Journal>>,
+    panel_log: Vec<(String, String)>,
+    mode: UiMode,
+    thinking: bool,
+    pending_question: Option<String>,
+    last_input_log: Instant,
 }
 
 impl App {
@@ -50,6 +75,9 @@ impl App {
         } else {
             start.clone()
         };
+        let cfg = Config::load();
+        let journal = Arc::new(Mutex::new(Journal::create(&cfg.journal_dir)?));
+        let copilot = Copilot::spawn(cfg.clone());
         let mut app = App {
             screen: Screen::Browser(Browser::new(browser_dir)),
             audio,
@@ -57,6 +85,14 @@ impl App {
             toasts: Vec::new(),
             quit: false,
             needs_clear: false,
+            cfg,
+            copilot,
+            journal,
+            panel_log: Vec::new(),
+            mode: UiMode::Play,
+            thinking: false,
+            pending_question: None,
+            last_input_log: Instant::now(),
         };
         if start.is_file() {
             app.start_game(&start);
@@ -151,10 +187,217 @@ impl App {
         for t in new_toasts {
             self.toast(t);
         }
+        // Copilot streaming.
+        while let Some(msg) = self.copilot.poll() {
+            match msg {
+                CopilotMsg::Chunk(c) => {
+                    self.thinking = true;
+                    match self.panel_log.last_mut() {
+                        Some((role, text)) if role == "ai*" => text.push_str(&c),
+                        _ => self.panel_log.push(("ai*".into(), c)),
+                    }
+                }
+                CopilotMsg::Done(full) => {
+                    self.thinking = false;
+                    if let Some((role, text)) = self.panel_log.last_mut()
+                        && role == "ai*"
+                    {
+                        *role = "ai".into();
+                        *text = full.clone();
+                    } else {
+                        self.panel_log.push(("ai".into(), full.clone()));
+                    }
+                    let question = self.pending_question.take().unwrap_or_default();
+                    self.log_event(
+                        Source::Copilot,
+                        EventKind::Exchange {
+                            question,
+                            answer: full,
+                            screenshot: None,
+                        },
+                    );
+                }
+                CopilotMsg::Error(e) => {
+                    self.thinking = false;
+                    self.panel_log.push(("err".into(), e));
+                }
+            }
+        }
+        // Autopilot events.
+        let mut finished = false;
+        if let UiMode::Autopilot { rx, .. } = &self.mode {
+            while let Ok(ev) = rx.try_recv() {
+                match ev {
+                    PlannerEvent::Decided { action, outcome } => self
+                        .panel_log
+                        .push(("auto".into(), format!("{action} -> {outcome}"))),
+                    PlannerEvent::Message(m) => self.panel_log.push(("auto".into(), m)),
+                    PlannerEvent::Finished(r) => {
+                        self.panel_log.push(("auto".into(), format!("done: {r}")));
+                        finished = true;
+                    }
+                }
+            }
+        }
+        if finished {
+            self.mode = UiMode::Play;
+        }
+    }
+
+    fn current_state_json(&self) -> serde_json::Value {
+        if let Screen::Game(session) = &self.screen {
+            let shared = session.handle.shared();
+            let s = shared.lock().unwrap();
+            if let Some(gs) = &s.game_state {
+                return gs.to_json();
+            }
+        }
+        serde_json::Value::Null
+    }
+
+    fn log_event(&self, source: Source, kind: EventKind) {
+        let state = self.current_state_json();
+        if let Ok(mut j) = self.journal.lock() {
+            j.log(source, 0, state, kind);
+        }
+    }
+
+    fn recent_journal_lines(&self) -> String {
+        let path = self
+            .journal
+            .lock()
+            .map(|j| j.dir().join("events.jsonl"))
+            .unwrap_or_default();
+        match std::fs::read_to_string(path) {
+            Ok(text) => {
+                let lines: Vec<&str> = text.lines().collect();
+                let start = lines.len().saturating_sub(20);
+                lines[start..].join("\n")
+            }
+            Err(_) => String::new(),
+        }
+    }
+
+    fn submit_hint(&mut self, question: String) {
+        let Screen::Game(session) = &self.screen else {
+            return;
+        };
+        let shared = session.handle.shared();
+        let (state_text, image_png) = {
+            let s = shared.lock().unwrap();
+            let text = s
+                .game_state
+                .as_ref()
+                .map(|g| g.prompt_text())
+                .unwrap_or_else(|| "state unavailable".into());
+            let img = if self.cfg.vision && s.width > 0 {
+                encode_png(&s.rgb, s.width as u32, s.height as u32)
+            } else {
+                None
+            };
+            (text, img)
+        };
+        let q = if question.trim().is_empty() {
+            "What should I do here?".to_string()
+        } else {
+            question
+        };
+        self.panel_log.push(("you".into(), q.clone()));
+        self.pending_question = Some(q.clone());
+        self.thinking = true;
+        self.copilot.ask_streaming(HintRequest {
+            state_text,
+            recent: self.recent_journal_lines(),
+            question: q,
+            image_png,
+        });
+    }
+
+    fn start_autopilot(&mut self, goal: String) {
+        let Screen::Game(session) = &self.screen else {
+            return;
+        };
+        let goal = if goal.trim().is_empty() {
+            "make progress toward the next objective".to_string()
+        } else {
+            goal
+        };
+        let abort = Arc::new(AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctl = session.handle.controller();
+        let cfg = self.cfg.clone();
+        let journal = Arc::clone(&self.journal);
+        let abort2 = Arc::clone(&abort);
+        let goal2 = goal.clone();
+        std::thread::spawn(move || {
+            let driver = Driver::new(ctl, abort2, PathBuf::from("run/maps"));
+            run_planner(
+                |sys, user| ask_blocking(&cfg, sys, user),
+                &driver,
+                journal,
+                goal2,
+                tx,
+            );
+        });
+        self.panel_log
+            .push(("auto".into(), format!("goal: {goal}")));
+        self.mode = UiMode::Autopilot { abort, rx };
     }
 
     fn handle_event(&mut self, ev: Event) {
         let Event::Key(key) = ev else { return };
+        match &mut self.mode {
+            UiMode::HintInput(buf) => {
+                if key.kind != KeyEventKind::Press && key.kind != KeyEventKind::Repeat {
+                    return;
+                }
+                match key.code {
+                    KeyCode::Enter => {
+                        let q = buf.clone();
+                        self.mode = UiMode::Play;
+                        self.submit_hint(q);
+                    }
+                    KeyCode::Esc => self.mode = UiMode::Play,
+                    KeyCode::Backspace => {
+                        buf.pop();
+                    }
+                    KeyCode::Char(c) => buf.push(c),
+                    _ => {}
+                }
+                return;
+            }
+            UiMode::GoalInput(buf) => {
+                if key.kind != KeyEventKind::Press && key.kind != KeyEventKind::Repeat {
+                    return;
+                }
+                match key.code {
+                    KeyCode::Enter => {
+                        let g = buf.clone();
+                        self.mode = UiMode::Play;
+                        self.start_autopilot(g);
+                    }
+                    KeyCode::Esc => self.mode = UiMode::Play,
+                    KeyCode::Backspace => {
+                        buf.pop();
+                    }
+                    KeyCode::Char(c) => buf.push(c),
+                    _ => {}
+                }
+                return;
+            }
+            UiMode::Autopilot { abort, .. } => {
+                if key.kind == KeyEventKind::Press {
+                    abort.store(true, Ordering::SeqCst);
+                    if let Screen::Game(session) = &self.screen {
+                        session.handle.send(EmuCommand::AbortOps);
+                    }
+                    self.panel_log
+                        .push(("auto".into(), "aborting after current step…".into()));
+                }
+                return;
+            }
+            UiMode::Play => {}
+        }
         match &self.screen {
             Screen::Browser(_) => {
                 if key.kind == KeyEventKind::Press || key.kind == KeyEventKind::Repeat {
@@ -184,6 +427,26 @@ impl App {
     }
 
     fn handle_game_key(&mut self, key: ratatui::crossterm::event::KeyEvent) {
+        // Copilot hotkeys first.
+        if key.kind == KeyEventKind::Press {
+            match key.code {
+                KeyCode::Char('?') => {
+                    if let Screen::Game(session) = &self.screen {
+                        let paused = session.handle.shared().lock().unwrap().paused;
+                        if !paused {
+                            session.handle.send(EmuCommand::TogglePause);
+                        }
+                    }
+                    self.mode = UiMode::HintInput(String::new());
+                    return;
+                }
+                KeyCode::Tab => {
+                    self.mode = UiMode::GoalInput(String::new());
+                    return;
+                }
+                _ => {}
+            }
+        }
         let Screen::Game(session) = &mut self.screen else {
             return;
         };
@@ -228,8 +491,23 @@ impl App {
                     && session.tracker.press(b, now)
                 {
                     session.handle.send(EmuCommand::Button(b, true));
+                    if now.duration_since(self.last_input_log) > Duration::from_millis(200) {
+                        self.last_input_log = now;
+                        let kind = EventKind::Input {
+                            buttons: format!("{b:?}"),
+                        };
+                        self.log_event(Source::Human, kind);
+                    }
                 }
             }
+        }
+    }
+
+    fn ai_status(&self) -> &'static str {
+        match self.mode {
+            UiMode::Autopilot { .. } => "autopilot",
+            _ if self.thinking => "thinking",
+            _ => "idle",
         }
     }
 
@@ -266,10 +544,19 @@ impl App {
             }
             Screen::Game(session) => {
                 let area = f.area();
-                // Reserve a 26-col status panel when it fits.
-                let (game_area, panel_area) = if area.width > 120 {
-                    let chunks = Layout::horizontal([Constraint::Min(10), Constraint::Length(26)])
-                        .split(area);
+                let panel_wanted = !self.panel_log.is_empty()
+                    || !matches!(self.mode, UiMode::Play)
+                    || area.width > 120;
+                let panel_w: u16 =
+                    if !self.panel_log.is_empty() || !matches!(self.mode, UiMode::Play) {
+                        36
+                    } else {
+                        26
+                    };
+                let (game_area, panel_area) = if panel_wanted && area.width > 60 {
+                    let chunks =
+                        Layout::horizontal([Constraint::Min(10), Constraint::Length(panel_w)])
+                            .split(area);
                     (chunks[0], Some(chunks[1]))
                 } else {
                     (area, None)
@@ -295,11 +582,25 @@ impl App {
                         turbo: s.turbo,
                         muted: session.muted,
                     };
-                    let lines: Vec<Line> =
-                        status_lines(&info).into_iter().map(Line::from).collect();
+                    let mut lines: Vec<String> = status_lines(&info);
+                    lines.push(format!("AI:    {}", self.ai_status()));
+                    lines.push(String::new());
+                    lines.extend(wrap_panel_lines(&self.panel_log, panel_w.saturating_sub(2)));
+                    match &self.mode {
+                        UiMode::HintInput(buf) => lines.push(format!("? {buf}_")),
+                        UiMode::GoalInput(buf) => lines.push(format!("goal: {buf}_")),
+                        UiMode::Autopilot { .. } => lines.push("[any key stops autopilot]".into()),
+                        UiMode::Play => {}
+                    }
+                    let n_fit = panel.height.saturating_sub(2) as usize;
+                    let start = lines.len().saturating_sub(n_fit);
+                    let shown: Vec<Line> = lines[start..]
+                        .iter()
+                        .map(|l| Line::from(l.clone()))
+                        .collect();
                     f.render_widget(
-                        Paragraph::new(lines)
-                            .block(Block::default().borders(Borders::ALL).title(" status ")),
+                        Paragraph::new(shown)
+                            .block(Block::default().borders(Borders::ALL).title(" copilot ")),
                         panel,
                     );
                 }
@@ -328,4 +629,19 @@ impl App {
             );
         }
     }
+}
+
+/// Encode RGB888 into an in-memory PNG (for multimodal hint requests).
+fn encode_png(rgb: &[u8], w: u32, h: u32) -> Option<Vec<u8>> {
+    if rgb.len() < (w * h * 3) as usize {
+        return None;
+    }
+    let mut out = Vec::new();
+    {
+        let mut enc = png::Encoder::new(std::io::Cursor::new(&mut out), w, h);
+        enc.set_color(png::ColorType::Rgb);
+        enc.set_depth(png::BitDepth::Eight);
+        enc.write_header().ok()?.write_image_data(rgb).ok()?;
+    }
+    Some(out)
 }
