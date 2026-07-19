@@ -39,4 +39,9 @@ pub trait EmulatorCore: Send {
     fn save_state(&self) -> Result<Vec<u8>>;
     fn load_state(&mut self, data: &[u8]) -> Result<()>;
     fn battery_ram(&self) -> Option<Vec<u8>>;
+    /// Read a byte from the emulated memory bus without side effects.
+    /// Cores that cannot support this may keep the default.
+    fn peek(&self, _addr: u16) -> u8 {
+        0
+    }
 }
