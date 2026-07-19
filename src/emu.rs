@@ -362,7 +362,7 @@ fn run_loop(
             s.width = frame.width;
             s.height = frame.height;
             s.seq += 1;
-            if frame_count % STATE_REFRESH_FRAMES == 0 {
+            if frame_count.is_multiple_of(STATE_REFRESH_FRAMES) {
                 s.game_state = Some(GameState::read(core.as_ref()));
             }
         }
