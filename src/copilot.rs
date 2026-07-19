@@ -152,11 +152,11 @@ fn stream_chat(cfg: &Config, req: &HintRequest, out: &Sender<CopilotMsg>) -> Res
             continue;
         }
         let v: serde_json::Value = serde_json::from_str(&line)?;
-        if let Some(chunk) = v["message"]["content"].as_str() {
-            if !chunk.is_empty() {
-                full.push_str(chunk);
-                let _ = out.send(CopilotMsg::Chunk(chunk.to_string()));
-            }
+        if let Some(chunk) = v["message"]["content"].as_str()
+            && !chunk.is_empty()
+        {
+            full.push_str(chunk);
+            let _ = out.send(CopilotMsg::Chunk(chunk.to_string()));
         }
         if v["done"].as_bool() == Some(true) {
             break;
