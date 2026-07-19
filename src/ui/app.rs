@@ -208,7 +208,7 @@ impl App {
                 }
             }
             KeyCode::F(n @ 1..=4) => {
-                let slot = n as u8;
+                let slot = n;
                 if key.modifiers.contains(KeyModifiers::SHIFT) {
                     session.handle.send(EmuCommand::LoadState(slot));
                 } else {
@@ -216,10 +216,10 @@ impl App {
                 }
             }
             code => {
-                if let Some(b) = map_key(code) {
-                    if session.tracker.press(b, now) {
-                        session.handle.send(EmuCommand::Button(b, true));
-                    }
+                if let Some(b) = map_key(code)
+                    && session.tracker.press(b, now)
+                {
+                    session.handle.send(EmuCommand::Button(b, true));
                 }
             }
         }
