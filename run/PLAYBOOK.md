@@ -62,3 +62,17 @@ Boulder Badge (in progress).
 5. Pewter City: heal, then **Brock**: Geodude L12, Onix L14. Lead with Nidoran Double Kick
    (if caught) or overleveled Charmander (Ember is resisted — expect a slog; stock Potions).
 6. Verify badge: peek D356 bit0 = 1 → Boulder Badge. Checkpoint ck-boulder-badge.
+
+## MISSION COMPLETE — 2026-07-19
+
+- Bobby (player), rival GARY, starter Charmander -> CHARMELEON L18 (Scratch/Growl/Ember/Leer)
+- PIKACHU L5 caught in Viridian Forest via ExtraTricky DSum walk (2nd pattern: L4 Weedle seed
+  -> 15-out -> L5 Kakuna -> 19-out -> PIKACHU). 3 balls used. Only Pikachu caught
+  (an accidental Rattata was erased via state rollback).
+- Whiteouts: 1 (Route 2 poison, pre-Antidotes).
+- BROCK DEFEATED: Growl-stacked Geodude to Tackle=1, Ember x5 (3-10 dmg); Onix fell to
+  3 Embers (17+16+crit) — Onix's Special is 30, Ember shreds despite rock resist.
+- badges=0x01 (Boulder Badge), money 1713, Pewter PC is respawn.
+- Key battle lesson: move cursor resets/drifts; ALWAYS verify move menu by screenshot
+  before firing. L17 Leer changed the moveset to 4 slots (breaks down-clamp macros).
+- States: ck-BOULDER-BADGE.state (post-badge), ck-BEFORE-BROCK.state (retry point).
