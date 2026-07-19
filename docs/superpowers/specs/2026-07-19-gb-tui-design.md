@@ -10,6 +10,14 @@ A terminal (ratatui) frontend for playing Game Boy and Game Boy Color ROMs, buil
 talks to the core only through an `EmulatorCore` trait so a Game Boy Advance core
 (`rustboyadvance-core`, git dependency) can be added later without frontend changes.
 
+## Constraints
+
+- **Pure Rust stack**: no C emulator cores, no cmake/clang build steps, no vendored C.
+  All chosen crates (boytacean, ratatui, crossterm) are pure Rust; `cpal` is the sole
+  OS-boundary crate (thin system bindings to ALSA/CoreAudio/WASAPI — required for real
+  audio on any stack).
+- **Primary test ROM: Pokémon Red** (user-supplied, legally owned; never committed).
+
 ## Goals
 
 - Play commercial and homebrew GB/GBC ROMs in the terminal with sound.
@@ -131,8 +139,11 @@ implements the same trait; frontend selects by ROM extension.
 
 - Unit: scaler (aspect math, odd sizes, tiny areas), auto-release input logic, audio ring
   buffer.
-- Integration: run dmg-acid2 (freely distributable) headless through `GbCore` for a few
-  hundred frames and checksum the framebuffer.
+- Integration: **Pokémon Red** is the primary test ROM. The test looks for the
+  user-supplied copy at `test-roms/pokemon-red.gb` (gitignored) and skips with a notice if
+  absent. It runs the ROM headless through `GbCore` for a few hundred frames, asserts the
+  framebuffer is non-blank and stable (checksum), and exercises battery-save round-trip
+  and save-state round-trip. Manual play-testing also targets Pokémon Red.
 - Development follows TDD (superpowers:test-driven-development).
 
 ## Future work
