@@ -75,3 +75,17 @@ All play (yours, the copilot's, the autopilot's) is journaled to
 `journal/<session>/events.jsonl` and exportable as fine-tune datasets — see
 `docs/training.md` for the fully-local training recipe. Autopilot walking needs
 map data: `./run/fetch-maps.sh` once.
+
+### Headless autonomous play
+
+`gb-agent play` runs the same planner/macro loop without the TUI, at turbo
+speed, with a switchable brain:
+
+    gb-agent play --rom <rom> --state <file> --goal "win this battle" \
+      --backend ollama            # local model (default, from gb-tui.toml)
+    gb-agent play ... --backend claude   # plans via the claude CLI (your login)
+
+No screenshots are taken unless necessary: the loop is RAM/text-only, and only
+after two consecutive failed actions is one PNG saved and offered to the model.
+A no-progress guard stops deterministically if the model loops. Sessions are
+journaled like everything else.

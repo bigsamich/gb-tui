@@ -267,6 +267,24 @@ impl Driver {
         )
     }
 
+    /// Encode the current framebuffer as PNG (for failure-escalation shots).
+    pub fn screenshot_png(&self) -> Option<(Vec<u8>, u32, u32)> {
+        let shared = self.ctl.shared();
+        let s = shared.lock().unwrap();
+        if s.width == 0 || s.rgb.len() < s.width * s.height * 3 {
+            return None;
+        }
+        let (w, h) = (s.width as u32, s.height as u32);
+        let mut out = Vec::new();
+        {
+            let mut enc = png::Encoder::new(std::io::Cursor::new(&mut out), w, h);
+            enc.set_color(png::ColorType::Rgb);
+            enc.set_depth(png::BitDepth::Eight);
+            enc.write_header().ok()?.write_image_data(&s.rgb).ok()?;
+        }
+        Some((out, w, h))
+    }
+
     /// Face forward and interact (signs, NPCs, pickups).
     pub fn interact(&self) -> MacroResult {
         self.run_ops("a:8 wait:120 a:8 wait:120")

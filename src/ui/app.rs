@@ -332,7 +332,7 @@ impl App {
         std::thread::spawn(move || {
             let driver = Driver::new(ctl, abort2, PathBuf::from("run/maps"));
             run_planner(
-                |sys, user| ask_blocking(&cfg, sys, user),
+                |sys, user, _shot| ask_blocking(&cfg, sys, user),
                 &driver,
                 journal,
                 goal2,
