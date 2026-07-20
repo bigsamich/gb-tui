@@ -50,3 +50,28 @@ on its own thread, paced by audio back-pressure: it pushes samples into a
 blocking ring buffer that the cpal output stream drains at 44.1 kHz. The
 screen renders as `▀` half-block cells (two pixels per cell) with
 aspect-preserving nearest-neighbor scaling.
+
+## AI copilot (local)
+
+With [Ollama](https://ollama.com) running locally (`ollama serve` + a pulled
+model), the TUI gains an AI copilot:
+
+- `?` — pause and ask about the current situation; the answer streams into the
+  side panel (the model sees your live RAM-derived game state).
+- `Tab` — hand the controls to the autopilot: a local LLM picks high-level
+  actions (fight, flee, walk-to, heal…) executed by deterministic macros.
+  Press any key to take back control.
+
+Configure via `gb-tui.toml`:
+
+```toml
+ollama_url = "http://localhost:11434"
+model = "qwen2.5:14b"
+vision = false        # true for multimodal models (screenshot attached)
+journal_dir = "journal"
+```
+
+All play (yours, the copilot's, the autopilot's) is journaled to
+`journal/<session>/events.jsonl` and exportable as fine-tune datasets — see
+`docs/training.md` for the fully-local training recipe. Autopilot walking needs
+map data: `./run/fetch-maps.sh` once.

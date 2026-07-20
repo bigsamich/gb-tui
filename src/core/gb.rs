@@ -30,15 +30,11 @@ impl Default for GbCore {
     }
 }
 
-impl GbCore {
-    /// Read a byte from the emulated memory bus without side effects.
-    /// Used by the agent harness to inspect game state (positions, party, badges).
-    pub fn peek(&self, addr: u16) -> u8 {
+impl EmulatorCore for GbCore {
+    fn peek(&self, addr: u16) -> u8 {
         self.gb.borrow().mmu_i().read(addr)
     }
-}
 
-impl EmulatorCore for GbCore {
     fn load_rom(&mut self, rom: &[u8], battery_ram: Option<&[u8]>) -> Result<RomInfo> {
         let cgb = rom.len() > 0x143 && rom[0x143] & 0x80 != 0;
         let mode = if cgb {

@@ -17,43 +17,12 @@
 use anyhow::{Context, Result, anyhow, bail};
 use gb_tui::core::gb::GbCore;
 use gb_tui::core::{Button, EmulatorCore};
+use gb_tui::emu::{Op, parse_script};
 use std::path::PathBuf;
 
 const FRAME_W: usize = 160;
 const FRAME_H: usize = 144;
 const SCALE: usize = 3;
-
-#[derive(Debug, PartialEq)]
-enum Op {
-    Hold(Button, u32),
-    Wait(u32),
-    MashA(u32),
-}
-
-fn parse_script(script: &str) -> Result<Vec<Op>> {
-    let mut ops = Vec::new();
-    for tok in script.split_whitespace() {
-        let (name, n) = tok
-            .split_once(':')
-            .ok_or_else(|| anyhow!("bad token (want name:count): {tok}"))?;
-        let n: u32 = n.parse().with_context(|| format!("bad count in {tok}"))?;
-        let op = match name.to_ascii_lowercase().as_str() {
-            "up" => Op::Hold(Button::Up, n),
-            "down" => Op::Hold(Button::Down, n),
-            "left" => Op::Hold(Button::Left, n),
-            "right" => Op::Hold(Button::Right, n),
-            "a" => Op::Hold(Button::A, n),
-            "b" => Op::Hold(Button::B, n),
-            "start" => Op::Hold(Button::Start, n),
-            "select" => Op::Hold(Button::Select, n),
-            "wait" => Op::Wait(n),
-            "mash-a" => Op::MashA(n),
-            other => bail!("unknown op: {other}"),
-        };
-        ops.push(op);
-    }
-    Ok(ops)
-}
 
 fn run_frames(core: &mut GbCore, n: u32) {
     for _ in 0..n {
@@ -134,6 +103,34 @@ struct Args {
     shot: Option<PathBuf>,
     peek: bool,
     peekhex: Option<(u16, u16)>,
+    journal: Option<PathBuf>,
+}
+
+/// `gb-agent export --journal <dir> --format advice|policy --out <file>`
+fn run_export() -> Result<()> {
+    let mut journal = None;
+    let mut format = String::from("advice");
+    let mut out_path = None;
+    let mut it = std::env::args().skip(2);
+    while let Some(a) = it.next() {
+        let mut val = || it.next().ok_or_else(|| anyhow!("missing value for {a}"));
+        match a.as_str() {
+            "--journal" => journal = Some(PathBuf::from(val()?)),
+            "--format" => format = val()?,
+            "--out" => out_path = Some(PathBuf::from(val()?)),
+            other => bail!("unknown export arg: {other}"),
+        }
+    }
+    let journal = journal.ok_or_else(|| anyhow!("export requires --journal <dir>"))?;
+    let out_path = out_path.ok_or_else(|| anyhow!("export requires --out <file>"))?;
+    let mut out = std::fs::File::create(&out_path)?;
+    let n = match format.as_str() {
+        "advice" => gb_tui::export::export_advice(&journal, &mut out)?,
+        "policy" => gb_tui::export::export_policy(&journal, &mut out)?,
+        other => bail!("unknown format {other} (want advice|policy)"),
+    };
+    println!("exported {n} {format} records -> {}", out_path.display());
+    Ok(())
 }
 
 fn parse_args() -> Result<Args> {
@@ -145,6 +142,7 @@ fn parse_args() -> Result<Args> {
         shot: None,
         peek: false,
         peekhex: None,
+        journal: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -156,6 +154,7 @@ fn parse_args() -> Result<Args> {
             "--script" => args.script = val()?,
             "--shot" => args.shot = Some(PathBuf::from(val()?)),
             "--peek" => args.peek = true,
+            "--journal" => args.journal = Some(PathBuf::from(val()?)),
             "--peekhex" => {
                 let v = val()?;
                 let (a, l) = v
@@ -174,6 +173,9 @@ fn parse_args() -> Result<Args> {
 }
 
 fn main() -> Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("export") {
+        return run_export();
+    }
     let args = parse_args()?;
     let ops = parse_script(&args.script)?;
 
@@ -206,6 +208,20 @@ fn main() -> Result<()> {
             .map(|i| format!("{:02x}", core.peek(addr.wrapping_add(i))))
             .collect();
         println!("hex@{addr:#06x}: {}", bytes.join(" "));
+    }
+    if let Some(dir) = &args.journal {
+        use gb_tui::gamestate::GameState;
+        use gb_tui::journal::{EventKind, Journal, Source};
+        let mut j = Journal::create(dir)?;
+        let gs = GameState::read(&core);
+        j.log(
+            Source::Agent,
+            frames,
+            gs.to_json(),
+            EventKind::Note {
+                text: format!("script: {}", args.script),
+            },
+        );
     }
     println!("ok: ran {frames} frames, state -> {}", args.state.display());
     Ok(())

@@ -1,6 +1,12 @@
 pub mod audio;
+pub mod autopilot;
+pub mod copilot;
 pub mod core;
 pub mod emu;
+pub mod export;
+pub mod gamestate;
 pub mod input;
+pub mod journal;
+pub mod mapdata;
 pub mod persist;
 pub mod ui;

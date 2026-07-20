@@ -48,6 +48,36 @@ pub fn zoom_hint(cols: u16, rows: u16) -> Option<String> {
     ))
 }
 
+/// Wrap copilot chat entries into panel-width lines with role prefixes.
+pub fn wrap_panel_lines(log: &[(String, String)], width: u16) -> Vec<String> {
+    let width = width.max(8) as usize;
+    let mut out = Vec::new();
+    for (role, text) in log {
+        let prefix = match role.as_str() {
+            "you" => "you> ",
+            "ai" | "ai*" => "ai>  ",
+            "auto" => "auto ",
+            "err" => "err  ",
+            _ => "     ",
+        };
+        let mut line = String::from(prefix);
+        for word in text.split_whitespace() {
+            if line.len() + word.len() + 1 > width && line.len() > prefix.len() {
+                out.push(line.clone());
+                line = String::from("     ");
+            }
+            if line.len() > 5 || !line.trim().is_empty() {
+                line.push(' ');
+            }
+            line.push_str(word);
+        }
+        if !line.trim().is_empty() {
+            out.push(line);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,5 +128,17 @@ mod tests {
         assert!(hint.contains("112x50"));
         assert!(hint.contains("160x72"));
         assert!(hint.contains("Ctrl+-"));
+    }
+
+    #[test]
+    fn wraps_panel_lines_with_prefixes() {
+        let log = vec![
+            ("you".to_string(), "how do I beat Brock quickly".to_string()),
+            ("ai".to_string(), "Use Ember".to_string()),
+        ];
+        let lines = wrap_panel_lines(&log, 16);
+        assert!(lines[0].starts_with("you> "));
+        assert!(lines.iter().any(|l| l.contains("Ember")));
+        assert!(lines.iter().all(|l| l.len() <= 20));
     }
 }
