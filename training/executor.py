@@ -51,18 +51,30 @@ class Emu:
         return bytes.fromhex(m.group(1).replace(" ", "")) if m else b""
 
     # ---- state snapshot ----
-    SPECIES = {0x54: "PIKACHU", 0xB0: "CHARMANDER", 0xB2: "CHARMELEON", 0xB4: "CHARIZARD"}
-    MOVES = {1: "POUND", 10: "SCRATCH", 33: "TACKLE", 45: "GROWL", 52: "EMBER", 43: "LEER",
-             84: "THUNDERSHOCK", 86: "THUNDER_WAVE", 98: "QUICK_ATTACK", 99: "RAGE",
-             129: "SWIFT", 53: "FLAMETHROWER", 163: "SLASH"}
+    # Full id->name tables auto-built from the disassembly name lists:
+    # internal species id = 1-based order in pokemon/names.asm;
+    # move id = 1-based order in moves/names.asm.
+    @staticmethod
+    def _load_tables():
+        def norm(s):
+            return (s.replace("♂", "_M").replace("♀", "_F").replace("'", "")
+                     .replace("-", "_").replace(".", "").replace(" ", "_").upper())
+        sp = {}
+        for i, m in enumerate(re.finditer(
+                r'dname "([^"]+)"', (ROOT / "assets/gamedata/pokemon/names.asm").read_text())):
+            sp[i + 1] = norm(m.group(1))
+        mv = {}
+        for i, m in enumerate(re.finditer(
+                r'li "([^"]+)"', (ROOT / "assets/gamedata/moves/names.asm").read_text())):
+            mv[i + 1] = norm(m.group(1))
+        return sp, mv
+
+    SPECIES, MOVES = None, None
 
     def species_name(self, sid: int) -> str:
-        if sid in self.SPECIES:
-            return self.SPECIES[sid]
-        try:  # fall back to dex order name via context db (internal ids differ; best effort)
-            return f"SPECIES_{sid:02X}"
-        except Exception:
-            return f"SPECIES_{sid:02X}"
+        if Emu.SPECIES is None:
+            Emu.SPECIES, Emu.MOVES = Emu._load_tables()
+        return Emu.SPECIES.get(sid, f"SPECIES_{sid:02X}")
 
     def snapshot(self) -> dict:
         d = self.peekblock("D000", 1024)   # D000..D3FF
@@ -76,16 +88,28 @@ class Emu:
             "in_battle": db(0xD057), "money": int(f"{db(0xD347):02x}{db(0xD348):02x}{db(0xD349):02x}"),
             "active_idx": cc[0x2F],
         }
+        if Emu.SPECIES is None:
+            Emu.SPECIES, Emu.MOVES = Emu._load_tables()
         mons = []
         for i in range(s["party_n"]):
             base = 0xD16B + 44 * i
-            moves = [self.MOVES.get(db(base + 8 + j), f"M{db(base+8+j)}")
+            moves = [Emu.MOVES.get(db(base + 8 + j), f"M{db(base+8+j)}")
                      for j in range(4) if db(base + 8 + j)]
             pp = [db(base + 0x1D + j) for j in range(4)]
             mons.append({"species": self.species_name(db(0xD164 + i)),
                          "level": db(base + 0x21), "hp": dw(base + 1), "max_hp": dw(base + 0x22),
                          "moves": moves, "pp": pp[:len(moves)]})
         s["party"] = mons
+        # bag: D31D count, D31E onwards (id, qty) pairs
+        bag = {}
+        n_items = db(0xD31D)
+        for i in range(min(n_items, 20)):
+            iid, qty = db(0xD31E + 2 * i), db(0xD31F + 2 * i)
+            if iid in (0, 0xFF):
+                break
+            bag[iid] = qty
+        s["bag"] = bag
+        s["balls"] = sum(q for iid, q in bag.items() if iid in (1, 2, 3, 4))
         if s["in_battle"]:
             s["enemy_species"] = self.species_name(cf[0xE5])
             s["enemy_hp"] = (cf[0xE6] << 8) | cf[0xE7]

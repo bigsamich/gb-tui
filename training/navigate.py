@@ -17,23 +17,33 @@ from pathlib import Path
 
 ASSETS = Path(__file__).resolve().parent.parent / "assets" / "gamedata" / "maps"
 
-TILESET_BST = {
-    "OVERWORLD": "overworld", "FOREST": "forest", "CAVERN": "cavern",
-    "REDS_HOUSE_1": "reds_house", "REDS_HOUSE_2": "reds_house", "DOJO": "gym",
-    "POKECENTER": "pokecenter", "GYM": "gym", "HOUSE": "house",
-    "FOREST_GATE": "gate", "MUSEUM": "gate", "UNDERGROUND": "underground",
-    "GATE": "gate", "SHIP": "ship", "SHIP_PORT": "ship_port", "CEMETERY": "cemetery",
-    "INTERIOR": "interior", "CAVE": "cavern", "LOBBY": "lobby", "MANSION": "mansion",
-    "LAB": "lab", "CLUB": "club", "FACILITY": "facility", "PLATEAU": "plateau",
-}
-COLL_NAME = {
-    "overworld": "Overworld_Coll", "forest": "Forest_Coll", "cavern": "Cavern_Coll",
-    "pokecenter": "Lobby_Coll", "gym": "Club_Coll", "house": "Facility_Coll",
-    "gate": "Lobby_Coll", "ship": "Facility_Coll", "ship_port": "Facility_Coll",
-    "cemetery": "Facility_Coll", "interior": "Facility_Coll", "lobby": "Lobby_Coll",
-    "mansion": "Mansion_Coll", "lab": "Lab_Coll", "club": "Club_Coll",
-    "facility": "Facility_Coll", "plateau": "Plateau_Coll", "underground": "Facility_Coll",
-    "reds_house": "Facility_Coll",
+# Authoritative per-tileset (blockset file, collision group), from the
+# disassembly's gfx/tilesets.asm INCBIN aliases + collision_tile_ids.asm groups.
+TILESET_INFO = {
+    "OVERWORLD": ("overworld", "Overworld_Coll"),
+    "REDS_HOUSE_1": ("reds_house", "RedsHouse1_Coll"),
+    "MART": ("pokecenter", "Mart_Coll"),
+    "FOREST": ("forest", "Forest_Coll"),
+    "REDS_HOUSE_2": ("reds_house", "RedsHouse2_Coll"),
+    "DOJO": ("gym", "Dojo_Coll"),
+    "POKECENTER": ("pokecenter", "Pokecenter_Coll"),
+    "GYM": ("gym", "Gym_Coll"),
+    "HOUSE": ("house", "House_Coll"),
+    "FOREST_GATE": ("gate", "Gate_Coll"),
+    "MUSEUM": ("gate", "Museum_Coll"),
+    "UNDERGROUND": ("underground", "Underground_Coll"),
+    "GATE": ("gate", "Gate_Coll"),
+    "SHIP": ("ship", "Ship_Coll"),
+    "SHIP_PORT": ("ship_port", "ShipPort_Coll"),
+    "CEMETERY": ("cemetery", "Cemetery_Coll"),
+    "INTERIOR": ("interior", "Interior_Coll"),
+    "CAVERN": ("cavern", "Cavern_Coll"),
+    "LOBBY": ("lobby", "Lobby_Coll"),
+    "MANSION": ("mansion", "Mansion_Coll"),
+    "LAB": ("lab", "Lab_Coll"),
+    "CLUB": ("club", "Club_Coll"),
+    "FACILITY": ("facility", "Facility_Coll"),
+    "PLATEAU": ("plateau", "Plateau_Coll"),
 }
 
 
@@ -43,8 +53,18 @@ def registry():
     const = (ASSETS / "meta" / "map_constants.asm").read_text()
     colls = {}
     ct = (ASSETS / "meta" / "collision_tile_ids.asm").read_text()
-    for m in re.finditer(r'(\w+_Coll)::\s*\n\s*coll_tiles\s+([^\n]*)', ct):
-        colls[m.group(1)] = {int(x, 16) for x in re.findall(r'\$([0-9a-f]+)', m.group(2))}
+    pending = []           # chained labels alias the next coll_tiles list
+    for line in ct.splitlines():
+        lm = re.match(r'\s*(\w+_Coll)::', line)
+        if lm:
+            pending.append(lm.group(1))
+            continue
+        tm = re.match(r'\s*coll_tiles\s+(.*)', line)
+        if tm and pending:
+            ids = {int(x, 16) for x in re.findall(r'\$([0-9a-f]+)', tm.group(1))}
+            for name in pending:
+                colls[name] = ids
+            pending = []
     reg = {}
     mid = 0
     for m in re.finditer(r'map_const\s+(\w+),\s*(\d+),\s*(\d+)', const):
@@ -58,9 +78,10 @@ def registry():
         hdr = ASSETS / "headers" / f"{camel}.asm"
         if blk.exists() and hdr.exists():
             ts = re.search(r'map_header\s+\w+,\s*\w+,\s*(\w+)', hdr.read_text())
-            bst = TILESET_BST.get(ts.group(1), "overworld") if ts else "overworld"
+            bst, collname = TILESET_INFO.get(ts.group(1) if ts else "OVERWORLD",
+                                             ("overworld", "Overworld_Coll"))
             entry.update(blk=blk, bst=bst,
-                         coll=colls.get(COLL_NAME.get(bst, "Overworld_Coll"), colls["Overworld_Coll"]))
+                         coll=colls.get(collname, colls["Overworld_Coll"]))
         reg[mid] = entry
         mid += 1
     return reg
