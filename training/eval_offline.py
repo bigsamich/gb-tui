@@ -19,7 +19,7 @@ HERE = Path(__file__).resolve().parent
 
 def ask_ollama(model, messages, url="http://localhost:11434"):
     body = json.dumps({"model": model, "messages": messages, "stream": False,
-                       "options": {"temperature": 0.1, "num_predict": 400}}).encode()
+                       "options": {"temperature": 0.1, "num_predict": int(__import__("os").environ.get("NUM_PREDICT", 400))}}).encode()
     req = urllib.request.Request(f"{url}/api/chat", body,
                                  {"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=600) as r:
