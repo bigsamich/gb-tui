@@ -93,19 +93,47 @@ def battle_facts(enemy_species: str, our_species: str, our_moves: list[str]) -> 
     return "\n".join(lines)
 
 
+import re as _re
+
+
+@lru_cache(maxsize=256)
+def map_warps(map_name: str) -> list[tuple[int, int, str]]:
+    """[(x, y, destination)] from the map's object file."""
+    f = ASSETS / "gamedata" / "maps" / "objects" / f"{map_name}.asm"
+    if not f.exists():
+        return []
+    out = []
+    for m in _re.finditer(r'warp_event\s+(\d+),\s*(\d+),\s*(\w+),\s*\d+', f.read_text()):
+        x, y, dest = int(m.group(1)), int(m.group(2)), m.group(3)
+        if dest != "LAST_MAP":
+            d = dest.replace("_", " ").title().replace("Pokecenter", "Pokémon Center") \
+                    .replace("Mart", "Poké Mart")
+            out.append((x, y, d))
+    return out
+
+
 def map_facts(map_name: str) -> str:
-    """FACTS block for overworld: encounter table for the current map."""
+    """FACTS block for overworld: doors/warps + encounter table for the map."""
     _, _, _, enc = _db()
+    lines = []
+    warps = map_warps(map_name)
+    if warps:
+        seen_dest = {}
+        for x, y, d in warps:
+            seen_dest.setdefault(d, (x, y))
+        lines.append("Doors/exits on this map: " +
+                     "; ".join(f"{d} at ({x},{y})" for d, (x, y) in seen_dest.items()) + ".")
     e = enc.get(map_name)
-    if not e or "grass" not in e:
-        return f"{map_name}: no wild encounters."
-    g = e["grass"]
-    seen = {}
-    for row in g["mons"]:
-        s = seen.setdefault(row["species"], [])
-        s.append(row["level"])
-    parts = [f"{sp} L{min(ls)}-{max(ls)}" for sp, ls in seen.items()]
-    return f"{map_name} wild grass (rate {g['rate']}): " + ", ".join(parts) + "."
+    if e and "grass" in e:
+        g = e["grass"]
+        seen = {}
+        for row in g["mons"]:
+            seen.setdefault(row["species"], []).append(row["level"])
+        parts = [f"{sp} L{min(ls)}-{max(ls)}" for sp, ls in seen.items()]
+        lines.append(f"Wild grass (rate {g['rate']}): " + ", ".join(parts) + ".")
+    elif not warps:
+        lines.append(f"{map_name}: no notable map data.")
+    return "\n".join(lines)
 
 
 def party_facts(species: str, level: int) -> str:

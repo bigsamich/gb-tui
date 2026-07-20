@@ -3,3 +3,5 @@ runs/
 data/
 __pycache__/
 llama.cpp/
+rollouts/
+scenarios/
