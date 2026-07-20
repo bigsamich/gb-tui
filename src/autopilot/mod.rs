@@ -190,8 +190,8 @@ impl Driver {
                 return MacroResult::Done;
             }
             let r = self.run_ops(
-                "a:8 wait:140 b:8 wait:30 b:8 wait:30 up:4 wait:12 left:4 wait:12 \
-                 down:4 wait:16 right:4 wait:16 a:8 wait:240 a:8 wait:120",
+                "b:8 wait:140 b:8 wait:100 b:8 wait:30 up:4 wait:12 left:4 wait:12 \
+                 down:4 wait:16 right:4 wait:16 a:8 wait:240 b:8 wait:120",
             );
             if r != MacroResult::Done {
                 return r;
