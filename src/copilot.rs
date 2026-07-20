@@ -168,11 +168,25 @@ fn stream_chat(cfg: &Config, req: &HintRequest, out: &Sender<CopilotMsg>) -> Res
 
 /// Non-streaming request used by the autopilot planner.
 pub fn ask_blocking(cfg: &Config, system: &str, user: String) -> Result<String> {
+    ask_blocking_img(cfg, system, user, None)
+}
+
+/// Non-streaming request with an optional attached image (vision models).
+pub fn ask_blocking_img(
+    cfg: &Config,
+    system: &str,
+    user: String,
+    image_png: Option<Vec<u8>>,
+) -> Result<String> {
+    let mut user_msg = json!({"role": "user", "content": user});
+    if let Some(png) = image_png {
+        user_msg["images"] = json!([base64(&png)]);
+    }
     let body = json!({
         "model": cfg.model,
         "messages": [
             {"role": "system", "content": system},
-            {"role": "user", "content": user},
+            user_msg,
         ],
         "stream": false,
     });

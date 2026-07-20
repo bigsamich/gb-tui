@@ -105,6 +105,8 @@ pub enum EmuCommand {
     RunOps(Vec<Op>),
     /// Drop any queued/active ops (autopilot abort).
     AbortOps,
+    /// Write a save state to an explicit path (headless play sessions).
+    SaveStateTo(PathBuf),
     Stop,
 }
 
@@ -287,6 +289,17 @@ fn run_loop(
                     let mut s = shared.lock().unwrap();
                     s.ops_active = false;
                     s.ops_done += 1;
+                }
+                EmuCommand::SaveStateTo(path) => {
+                    let msg = core
+                        .save_state()
+                        .map_err(|e| e.to_string())
+                        .and_then(|d| std::fs::write(&path, d).map_err(|e| e.to_string()))
+                        .map(|_| format!("state saved to {}", path.display()));
+                    let _ = events.send(match msg {
+                        Ok(m) => EmuEvent::Toast(m),
+                        Err(e) => EmuEvent::Error(e),
+                    });
                 }
                 EmuCommand::SaveState(slot) => {
                     let msg = match &cfg.rom_path {

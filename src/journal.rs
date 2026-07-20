@@ -101,6 +101,19 @@ impl Journal {
         }
     }
 
+    /// Save pre-encoded PNG bytes as a numbered file; returns the file name.
+    pub fn save_screenshot_bytes(&mut self, png: &[u8]) -> Option<String> {
+        self.shot_idx += 1;
+        let name = format!("{:05}.png", self.shot_idx);
+        match std::fs::write(self.dir.join(&name), png) {
+            Ok(()) => Some(name),
+            Err(e) => {
+                eprintln!("screenshot write failed: {e}");
+                None
+            }
+        }
+    }
+
     /// Save an RGB888 framebuffer as a numbered PNG; returns the file name.
     pub fn save_screenshot(&mut self, rgb: &[u8], w: u32, h: u32) -> Option<String> {
         if rgb.len() < (w * h * 3) as usize {

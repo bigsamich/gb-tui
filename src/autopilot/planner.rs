@@ -63,27 +63,51 @@ pub enum PlannerEvent {
 
 const STEP_CAP: usize = 50;
 
-/// Run the planning loop. `ask` is injected so tests can fake the model;
-/// production passes a closure over `copilot::ask_blocking`.
+/// Run the planning loop. `ask` is injected so tests can fake the model and
+/// backends can differ; the third argument is a screenshot path offered only
+/// after repeated failures ("screenshots only when necessary").
 pub fn run_planner(
-    ask: impl Fn(&str, String) -> Result<String>,
+    ask: impl Fn(&str, String, Option<&std::path::Path>) -> Result<String>,
     driver: &Driver,
     journal: Arc<Mutex<Journal>>,
     goal: String,
     events: Sender<PlannerEvent>,
 ) {
     let system = format!("{}\n\n{}", crate::copilot::SYSTEM_PROMPT, ACTION_VOCAB);
+    let mut fail_streak = 0u32;
+    let mut last_sig: Option<(String, String)> = None;
+    let mut repeat_count = 0u32;
     for step in 0..STEP_CAP {
         if driver.abort.load(Ordering::SeqCst) {
             let _ = events.send(PlannerEvent::Finished("aborted by player".into()));
             return;
         }
         let gs = driver.state();
-        let user = format!(
+        let mut user = format!(
             "GOAL: {goal}\nSTEP: {step}\n\nCURRENT STATE:\n{}",
             gs.prompt_text()
         );
-        let reply = match ask(&system, user.clone()) {
+        // Screenshots only when necessary: after 2+ consecutive failures,
+        // save one and offer it to the model.
+        let mut shot_path: Option<std::path::PathBuf> = None;
+        if fail_streak >= 2
+            && let Some((png, w, h)) = driver.screenshot_png()
+        {
+            let saved = journal.lock().ok().and_then(|mut j| {
+                let _ = (w, h);
+                let name = j.save_screenshot_bytes(&png)?;
+                Some(j.dir().join(name))
+            });
+            if let Some(p) = saved {
+                user.push_str(&format!(
+                    "\n\nNOTE: the last {fail_streak} actions failed. A screenshot of \
+                     the current screen is saved at {} — inspect it if that helps.",
+                    p.display()
+                ));
+                shot_path = Some(p);
+            }
+        }
+        let reply = match ask(&system, user.clone(), shot_path.as_deref()) {
             Ok(r) => r,
             Err(e) => {
                 let _ = events.send(PlannerEvent::Finished(format!("model error: {e}")));
@@ -97,7 +121,10 @@ pub fn run_planner(
                     "{user}\n\nYour previous reply could not be parsed. \
                      Reply with ONLY a JSON action object."
                 );
-                match ask(&system, retry).ok().and_then(|r| parse_action(&r)) {
+                match ask(&system, retry, shot_path.as_deref())
+                    .ok()
+                    .and_then(|r| parse_action(&r))
+                {
                     Some(a) => a,
                     None => Action::Stop("model output unparseable".into()),
                 }
@@ -119,6 +146,10 @@ pub fn run_planner(
                 return;
             }
         };
+        match &outcome {
+            MacroResult::Done | MacroResult::BattleStarted => fail_streak = 0,
+            _ => fail_streak += 1,
+        }
         let outcome_desc = format!("{outcome:?}");
         journal_decision(
             &journal,
@@ -129,11 +160,26 @@ pub fn run_planner(
             &outcome_desc,
         );
         let _ = events.send(PlannerEvent::Decided {
-            action: action_desc,
+            action: action_desc.clone(),
             outcome: outcome_desc,
         });
         if outcome == MacroResult::Aborted {
             let _ = events.send(PlannerEvent::Finished("aborted by player".into()));
+            return;
+        }
+        // No-progress guard: the same action on an unchanged state three
+        // times in a row means the model is looping — stop deterministically.
+        let sig = (action_desc, driver.state().prompt_text());
+        if last_sig.as_ref() == Some(&sig) {
+            repeat_count += 1;
+        } else {
+            repeat_count = 0;
+            last_sig = Some(sig);
+        }
+        if repeat_count >= 2 {
+            let _ = events.send(PlannerEvent::Finished(
+                "no progress: repeated action with unchanged state".into(),
+            ));
             return;
         }
     }
@@ -223,7 +269,7 @@ mod tests {
         let journal = Arc::new(Mutex::new(Journal::create(tmp.path()).unwrap()));
         let (tx, rx) = std::sync::mpsc::channel();
         run_planner(
-            |_sys, _user| Ok(r#"{"action":"stop","reason":"test done"}"#.into()),
+            |_sys, _user, _shot| Ok(r#"{"action":"stop","reason":"test done"}"#.into()),
             &driver,
             Arc::clone(&journal),
             "test goal".into(),
