@@ -4,3 +4,4 @@ test-roms/pokemon-red.gb
 *.st[1-4]
 run/
 run/maps/
+gb-tui.toml

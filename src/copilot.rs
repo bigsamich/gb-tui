@@ -50,7 +50,7 @@ impl Config {
         let Ok(text) = std::fs::read_to_string("gb-tui.toml") else {
             return cfg;
         };
-        let Ok(value) = text.parse::<toml::Value>() else {
+        let Ok(value) = text.parse::<toml::Table>() else {
             eprintln!("gb-tui.toml: parse error, using defaults");
             return cfg;
         };
@@ -97,7 +97,7 @@ impl Copilot {
             while let Ok(req) = req_rx.recv() {
                 if let Err(e) = stream_chat(&cfg, &req, &resp_tx) {
                     let _ = resp_tx.send(CopilotMsg::Error(format!(
-                        "{e} — is Ollama running? try: ollama serve"
+                        "{e:#} — is Ollama running? try: ollama serve"
                     )));
                 }
             }
@@ -284,5 +284,56 @@ mod tests {
         assert_eq!(base64(b"hi"), "aGk=");
         assert_eq!(base64(b"hey"), "aGV5");
         assert_eq!(base64(b""), "");
+    }
+}
+
+#[cfg(test)]
+mod live_tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "needs live Ollama"]
+    fn live_ask_blocking() {
+        let cfg = Config {
+            model: "gpt-oss:20b".into(),
+            ..Config::default()
+        };
+        match ask_blocking(&cfg, "You are terse.", "say hi in 3 words".into()) {
+            Ok(r) => println!("LIVE OK: {r}"),
+            Err(e) => panic!("LIVE ERR: {e:#}"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod live_stream_tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "needs live Ollama"]
+    fn live_streaming() {
+        let cfg = Config {
+            model: "gpt-oss:20b".into(),
+            ..Config::default()
+        };
+        let c = Copilot::spawn(cfg);
+        c.ask_streaming(HintRequest {
+            state_text: "Location: Pewter Gym".into(),
+            recent: String::new(),
+            question: "say ok".into(),
+            image_png: None,
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        loop {
+            match c.poll() {
+                Some(CopilotMsg::Done(f)) => {
+                    println!("STREAM OK: {}", &f[..f.len().min(60)]);
+                    break;
+                }
+                Some(CopilotMsg::Error(e)) => panic!("STREAM ERR: {e}"),
+                _ => std::thread::sleep(std::time::Duration::from_millis(20)),
+            }
+            assert!(std::time::Instant::now() < deadline, "timeout");
+        }
     }
 }

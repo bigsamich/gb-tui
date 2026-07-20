@@ -104,6 +104,7 @@ pub fn run_planner(
             }
         };
         let action_desc = format!("{action:?}");
+        let state_before = gs.to_json();
         let outcome = match &action {
             Action::Fight => driver.fight(),
             Action::Flee => driver.flee(),
@@ -113,13 +114,20 @@ pub fn run_planner(
             Action::Interact => driver.interact(),
             Action::Press(seq) => driver.press(seq),
             Action::Stop(reason) => {
-                journal_decision(&journal, driver, &goal, &action_desc, "stop");
+                journal_decision(&journal, driver, &state_before, &goal, &action_desc, "stop");
                 let _ = events.send(PlannerEvent::Finished(reason.clone()));
                 return;
             }
         };
         let outcome_desc = format!("{outcome:?}");
-        journal_decision(&journal, driver, &goal, &action_desc, &outcome_desc);
+        journal_decision(
+            &journal,
+            driver,
+            &state_before,
+            &goal,
+            &action_desc,
+            &outcome_desc,
+        );
         let _ = events.send(PlannerEvent::Decided {
             action: action_desc,
             outcome: outcome_desc,
@@ -135,6 +143,7 @@ pub fn run_planner(
 fn journal_decision(
     journal: &Arc<Mutex<Journal>>,
     driver: &Driver,
+    state_before: &serde_json::Value,
     goal: &str,
     action: &str,
     outcome: &str,
@@ -144,7 +153,7 @@ fn journal_decision(
         j.log(
             Source::Autopilot,
             0,
-            serde_json::Value::Null,
+            state_before.clone(),
             EventKind::Decision {
                 goal: goal.to_string(),
                 action: action.to_string(),
