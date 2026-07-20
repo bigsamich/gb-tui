@@ -11,6 +11,7 @@ const OVERWORLD_COLL: &[u8] = &[
 const FOREST_COLL: &[u8] = &[
     0x1E, 0x20, 0x2E, 0x30, 0x34, 0x37, 0x39, 0x3A, 0x40, 0x51, 0x52, 0x5A, 0x5C, 0x5E, 0x5F,
 ];
+const CAVERN_COLL: &[u8] = &[0x05, 0x15, 0x18, 0x1A, 0x20, 0x21, 0x22, 0x2A, 0x2D, 0x30];
 
 /// map id -> (blk file, bst file, collision list, width blocks, height blocks)
 fn map_meta(map_id: u8) -> Option<(&'static str, &'static str, &'static [u8], usize, usize)> {
@@ -18,8 +19,14 @@ fn map_meta(map_id: u8) -> Option<(&'static str, &'static str, &'static [u8], us
         0 => ("PalletTown.blk", "overworld.bst", OVERWORLD_COLL, 10, 9),
         1 => ("ViridianCity.blk", "overworld.bst", OVERWORLD_COLL, 20, 18),
         2 => ("PewterCity.blk", "overworld.bst", OVERWORLD_COLL, 20, 18),
+        3 => ("CeruleanCity.blk", "overworld.bst", OVERWORLD_COLL, 20, 18),
         12 => ("Route1.blk", "overworld.bst", OVERWORLD_COLL, 10, 18),
         13 => ("Route2.blk", "overworld.bst", OVERWORLD_COLL, 10, 36),
+        14 => ("Route3.blk", "overworld.bst", OVERWORLD_COLL, 35, 9),
+        15 => ("Route4.blk", "overworld.bst", OVERWORLD_COLL, 45, 9),
+        59 => ("MtMoon1F.blk", "cavern.bst", CAVERN_COLL, 20, 18),
+        60 => ("MtMoonB1F.blk", "cavern.bst", CAVERN_COLL, 14, 14),
+        61 => ("MtMoonB2F.blk", "cavern.bst", CAVERN_COLL, 20, 18),
         51 => ("ViridianForest.blk", "forest.bst", FOREST_COLL, 17, 24),
         _ => return None,
     })
@@ -70,7 +77,13 @@ pub fn load(map_id: u8, assets_dir: &Path) -> Option<MapGrid> {
 }
 
 /// BFS shortest path; returns run-length compressed moves like [('u',3),('l',2)].
-pub fn bfs(grid: &MapGrid, start: (u8, u8), goal: (u8, u8)) -> Option<Vec<(char, u8)>> {
+/// `blocked` marks temporarily impassable tiles (e.g. NPCs discovered by bumping).
+pub fn bfs(
+    grid: &MapGrid,
+    start: (u8, u8),
+    goal: (u8, u8),
+    blocked: &[(u8, u8)],
+) -> Option<Vec<(char, u8)>> {
     let idx = |x: u8, y: u8| y as usize * grid.w + x as usize;
     let mut prev: Vec<Option<(u8, u8, char)>> = vec![None; grid.w * grid.h];
     let mut seen = vec![false; grid.w * grid.h];
@@ -88,7 +101,7 @@ pub fn bfs(grid: &MapGrid, start: (u8, u8), goal: (u8, u8)) -> Option<Vec<(char,
                 continue;
             }
             let (nx, ny) = (nx as u8, ny as u8);
-            if seen[idx(nx, ny)] || !grid.walkable(nx, ny) {
+            if seen[idx(nx, ny)] || !grid.walkable(nx, ny) || blocked.contains(&(nx, ny)) {
                 continue;
             }
             seen[idx(nx, ny)] = true;
@@ -161,9 +174,18 @@ mod tests {
     fn bfs_finds_forest_exit_path() {
         let Some(dir) = assets() else { return };
         let grid = load(51, &dir).unwrap();
-        let path = bfs(&grid, (15, 19), (1, 0)).expect("path exists");
+        let path = bfs(&grid, (15, 19), (1, 0), &[]).expect("path exists");
         let total: u32 = path.iter().map(|(_, n)| *n as u32).sum();
         assert!(total >= 40, "unexpectedly short path: {total}");
+    }
+
+    #[test]
+    fn bfs_crosses_route3() {
+        let Some(dir) = assets() else { return };
+        let grid = load(14, &dir).unwrap();
+        assert!(grid.walkable(60, 1), "(60,1) not walkable");
+        let p = bfs(&grid, (15, 9), (60, 1), &[]);
+        assert!(p.is_some(), "no path (15,9)->(60,1)");
     }
 
     #[test]

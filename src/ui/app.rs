@@ -1,7 +1,7 @@
 use crate::audio::AudioOutput;
 use crate::autopilot::Driver;
 use crate::autopilot::planner::{PlannerEvent, run_planner};
-use crate::copilot::{Config, Copilot, CopilotMsg, HintRequest, ask_blocking};
+use crate::copilot::{Config, Copilot, CopilotMsg, HintRequest};
 use crate::core::EmulatorCore;
 use crate::core::gb::GbCore;
 use crate::emu::{EmuCommand, EmuConfig, EmuEvent, EmuHandle};
@@ -332,7 +332,7 @@ impl App {
         std::thread::spawn(move || {
             let driver = Driver::new(ctl, abort2, PathBuf::from("run/maps"));
             run_planner(
-                |sys, user, _shot| ask_blocking(&cfg, sys, user),
+                |sys, user, _shot| crate::copilot::ask_blocking_json(&cfg, sys, user, None),
                 &driver,
                 journal,
                 goal2,

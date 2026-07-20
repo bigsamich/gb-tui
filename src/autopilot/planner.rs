@@ -20,11 +20,50 @@ pub enum Action {
     Stop(String),
 }
 
-/// Extract an action from model output: first `{`..last `}` parsed as JSON.
+/// Extract an action from model output: first `{`..last `}` parsed as JSON,
+/// with a forgiving field-scrape fallback for almost-JSON (local models often
+/// emit stray quotes or trailing commas).
 pub fn parse_action(text: &str) -> Option<Action> {
     let start = text.find('{')?;
     let end = text.rfind('}')?;
-    let v: serde_json::Value = serde_json::from_str(&text[start..=end]).ok()?;
+    let slice = &text[start..=end];
+    match serde_json::from_str::<serde_json::Value>(slice) {
+        Ok(v) => parse_action_value(&v),
+        Err(_) => parse_action_scrape(slice),
+    }
+}
+
+fn scrape_str<'a>(s: &'a str, key: &str) -> Option<&'a str> {
+    let pat = format!("\"{key}\"");
+    let i = s.find(&pat)? + pat.len();
+    let rest = s[i..].trim_start_matches([':', ' ']);
+    let rest = rest.strip_prefix('"')?;
+    rest.split('"').next()
+}
+
+fn scrape_num(s: &str, key: &str) -> Option<u8> {
+    let pat = format!("\"{key}\"");
+    let i = s.find(&pat)? + pat.len();
+    let rest = s[i..].trim_start_matches([':', ' ']);
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse().ok()
+}
+
+fn parse_action_scrape(s: &str) -> Option<Action> {
+    Some(match scrape_str(s, "action")? {
+        "fight" => Action::Fight,
+        "flee" => Action::Flee,
+        "use_item" => Action::UseItem(scrape_str(s, "item")?.to_string()),
+        "walk_to" => Action::WalkTo(scrape_num(s, "x")?, scrape_num(s, "y")?),
+        "heal_at_center" => Action::HealAtCenter,
+        "interact" => Action::Interact,
+        "press" => Action::Press(scrape_str(s, "seq")?.to_string()),
+        "stop" => Action::Stop(scrape_str(s, "reason").unwrap_or("stopped").to_string()),
+        _ => return None,
+    })
+}
+
+fn parse_action_value(v: &serde_json::Value) -> Option<Action> {
     let action = v.get("action")?.as_str()?;
     Some(match action {
         "fight" => Action::Fight,
@@ -234,6 +273,15 @@ mod tests {
         );
         assert_eq!(parse_action("no json here"), None);
         assert_eq!(parse_action(r#"{"action":"dance"}"#), None);
+        // Almost-JSON from local models: stray quote after a number.
+        assert_eq!(
+            parse_action(r#"{"action":"walk_to","x":13,"y":26"}"#),
+            Some(Action::WalkTo(13, 26))
+        );
+        assert_eq!(
+            parse_action(r#"{"action":"press","seq":"a:8 wait:60",}"#),
+            Some(Action::Press("a:8 wait:60".into()))
+        );
     }
 
     #[test]

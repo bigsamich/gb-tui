@@ -261,7 +261,7 @@ fn run_play() -> Result<()> {
                 let img = shot
                     .filter(|_| cfg.vision)
                     .and_then(|p| std::fs::read(p).ok());
-                copilot::ask_blocking_img(&cfg, sys, user, img)
+                copilot::ask_blocking_json(&cfg, sys, user.clone(), img)
             },
             &driver,
             Arc::clone(&journal),

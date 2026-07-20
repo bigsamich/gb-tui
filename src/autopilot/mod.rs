@@ -108,34 +108,58 @@ impl Driver {
     }
 
     /// One cursor-verified battle round. Returns Done while the battle
-    /// continues; the caller loops via `fight`.
+    /// continues; the caller loops via `fight`. Progress is verified against
+    /// RAM (HP changes) rather than fixed waits, because battle text length
+    /// varies wildly (level-ups, effectiveness lines, multi-mon trainers).
     fn battle_round(&self) -> MacroResult {
-        // Advance text, normalize to battle menu, cursor to FIGHT, open moves.
+        // Advance text with B (B advances but never selects), normalize to the
+        // battle menu, cursor to FIGHT, open the move menu.
         let r = self.run_ops(
-            "wait:8 a:8 wait:140 b:8 wait:30 b:8 wait:30 up:4 wait:12 left:4 wait:12 a:8 wait:80",
+            "wait:8 b:8 wait:140 b:8 wait:100 b:8 wait:30 up:4 wait:12 left:4 wait:12 a:8 wait:80",
         );
         if r != MacroResult::Done {
             return r;
         }
         let gs = self.state();
-        if gs.battle.is_none() {
+        let Some(before) = gs.battle.clone() else {
             return MacroResult::Done;
-        }
+        };
+        let our_hp_before = gs.party.first().map(|m| m.hp).unwrap_or(0);
         let Some(target) = self.best_move_slot(&gs) else {
             return MacroResult::Failed("no damaging move with PP".into());
         };
-        let cursor = gs.menu_cursor.min(3) as usize;
-        let mut nav = String::new();
-        if cursor < target {
-            for _ in 0..(target - cursor) {
-                nav.push_str("down:4 wait:14 ");
+        // Cursor-independent selection: the move menu does not wrap, so three
+        // Ups clamp to slot 0 from anywhere, then walk down to the target.
+        let mut nav = String::from("up:4 wait:14 up:4 wait:14 up:4 wait:14 ");
+        for _ in 0..target {
+            nav.push_str("down:4 wait:14 ");
+        }
+        let r = self.run_ops(&format!("{nav}a:8 wait:380"));
+        if r != MacroResult::Done {
+            return r;
+        }
+        // Push text forward until something observable changed (either side's
+        // HP, the enemy species, or battle end) — up to ~12 presses.
+        for _ in 0..12 {
+            let now = self.state();
+            let Some(b) = &now.battle else {
+                return MacroResult::Done;
+            };
+            let our_hp = now.party.first().map(|m| m.hp).unwrap_or(0);
+            if b.enemy_hp != before.enemy_hp
+                || b.enemy_species != before.enemy_species
+                || our_hp != our_hp_before
+            {
+                // Round resolved; clear any trailing text (B: safe, never selects).
+                let _ = self.run_ops("b:8 wait:120");
+                return MacroResult::Done;
             }
-        } else {
-            for _ in 0..(cursor - target) {
-                nav.push_str("up:4 wait:14 ");
+            let r = self.run_ops("b:8 wait:150");
+            if r != MacroResult::Done {
+                return r;
             }
         }
-        self.run_ops(&format!("{nav}a:8 wait:380 a:8 wait:150"))
+        MacroResult::Done
     }
 
     /// Fight until the battle ends (cap 15 rounds).
@@ -145,8 +169,8 @@ impl Driver {
                 return MacroResult::Aborted;
             }
             if self.state().battle.is_none() {
-                // Clear any lingering victory text.
-                return self.run_ops("a:8 wait:120 b:8 wait:60");
+                // Clear any lingering victory text (B never selects).
+                return self.run_ops("b:8 wait:120 b:8 wait:60");
             }
             match self.battle_round() {
                 MacroResult::Done => continue,
@@ -210,6 +234,8 @@ impl Driver {
     /// BFS-walk to (x, y) on the current map. Executes in chunks, re-checking
     /// state between chunks; a random battle returns `BattleStarted`.
     pub fn walk_to(&self, x: u8, y: u8) -> MacroResult {
+        let mut blocked: Vec<(u8, u8)> = Vec::new();
+        let mut last_pos: Option<(u8, u8)> = None;
         for _ in 0..30 {
             if self.abort.load(Ordering::SeqCst) {
                 return MacroResult::Aborted;
@@ -227,8 +253,11 @@ impl Driver {
                     gs.map_name, gs.map
                 ));
             };
-            let Some(path) = crate::mapdata::bfs(&grid, (gs.x, gs.y), (x, y)) else {
-                return MacroResult::Failed(format!("no path to ({x},{y})"));
+            let Some(path) = crate::mapdata::bfs(&grid, (gs.x, gs.y), (x, y), &blocked) else {
+                return MacroResult::Failed(format!(
+                    "no path from ({},{}) on map {} (grid {}x{}) to ({x},{y})",
+                    gs.x, gs.y, gs.map, grid.w, grid.h
+                ));
             };
             if path.is_empty() {
                 return MacroResult::Done;
@@ -248,6 +277,31 @@ impl Driver {
             if r != MacroResult::Done {
                 return r;
             }
+            // If we didn't move, something invisible to the map (an NPC)
+            // blocks the next tile. Try interacting first (a blocking trainer
+            // engages; a sign closes harmlessly), then mark and re-route.
+            let now = self.state();
+            if last_pos == Some((now.x, now.y)) {
+                let r = self.run_ops("a:8 wait:180 b:8 wait:60");
+                if r != MacroResult::Done {
+                    return r;
+                }
+                if self.state().battle.is_some() {
+                    return MacroResult::BattleStarted;
+                }
+                if let Some((d, _)) = chunk.first() {
+                    let (bx, by) = match d {
+                        'u' => (now.x, now.y.wrapping_sub(1)),
+                        'd' => (now.x, now.y.wrapping_add(1)),
+                        'l' => (now.x.wrapping_sub(1), now.y),
+                        _ => (now.x.wrapping_add(1), now.y),
+                    };
+                    if blocked.len() < 8 && !blocked.contains(&(bx, by)) {
+                        blocked.push((bx, by));
+                    }
+                }
+            }
+            last_pos = Some((now.x, now.y));
         }
         MacroResult::Failed("walk did not converge".into())
     }
@@ -255,7 +309,7 @@ impl Driver {
     /// Heal at a Pokémon Center (must already be inside one: maps 41/58).
     pub fn heal_at_center(&self) -> MacroResult {
         let gs = self.state();
-        if gs.map != 41 && gs.map != 58 {
+        if ![41, 58, 64, 68].contains(&gs.map) {
             return MacroResult::Failed(format!(
                 "not inside a Pokemon Center (in {})",
                 gs.map_name

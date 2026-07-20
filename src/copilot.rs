@@ -178,11 +178,32 @@ pub fn ask_blocking_img(
     user: String,
     image_png: Option<Vec<u8>>,
 ) -> Result<String> {
+    ask_blocking_inner(cfg, system, user, image_png, false)
+}
+
+/// Non-streaming request with Ollama's enforced-JSON output mode — the
+/// planner uses this so action replies are always parseable.
+pub fn ask_blocking_json(
+    cfg: &Config,
+    system: &str,
+    user: String,
+    image_png: Option<Vec<u8>>,
+) -> Result<String> {
+    ask_blocking_inner(cfg, system, user, image_png, true)
+}
+
+fn ask_blocking_inner(
+    cfg: &Config,
+    system: &str,
+    user: String,
+    image_png: Option<Vec<u8>>,
+    json_mode: bool,
+) -> Result<String> {
     let mut user_msg = json!({"role": "user", "content": user});
     if let Some(png) = image_png {
         user_msg["images"] = json!([base64(&png)]);
     }
-    let body = json!({
+    let mut body = json!({
         "model": cfg.model,
         "messages": [
             {"role": "system", "content": system},
@@ -190,6 +211,9 @@ pub fn ask_blocking_img(
         ],
         "stream": false,
     });
+    if json_mode {
+        body["format"] = json!("json");
+    }
     let resp = ureq::post(&format!("{}/api/chat", cfg.ollama_url))
         .timeout(std::time::Duration::from_secs(120))
         .send_json(body)
