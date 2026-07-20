@@ -241,7 +241,20 @@ impl Driver {
                 return MacroResult::Aborted;
             }
             let gs = self.state();
-            if gs.battle.is_some() {
+            if let Some(b) = &gs.battle {
+                // Handle wild interruptions inline (flee); only trainer
+                // battles need the planner's attention.
+                if b.kind == 1 {
+                    match self.flee() {
+                        MacroResult::Done => continue,
+                        // Cornered by a faster wild: fight it out inline.
+                        MacroResult::Failed(_) => match self.fight() {
+                            MacroResult::Done => continue,
+                            other => return other,
+                        },
+                        other => return other,
+                    }
+                }
                 return MacroResult::BattleStarted;
             }
             if (gs.x, gs.y) == (x, y) {
@@ -380,6 +393,7 @@ mod tests {
                 frame_duration: std::time::Duration::from_micros(200),
                 ring: None,
                 rom_path: None,
+                autosave: None,
             },
         );
         let driver = Driver::new(

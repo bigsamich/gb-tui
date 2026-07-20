@@ -137,6 +137,9 @@ pub struct EmuConfig {
     pub frame_duration: Duration,
     pub ring: Option<Arc<AudioRing>>,
     pub rom_path: Option<PathBuf>,
+    /// When set, the emu thread writes a save state here periodically so
+    /// killed headless sessions lose at most a few seconds of progress.
+    pub autosave: Option<PathBuf>,
 }
 
 impl Default for EmuConfig {
@@ -146,6 +149,7 @@ impl Default for EmuConfig {
             frame_duration: Duration::from_nanos(16_742_706),
             ring: None,
             rom_path: None,
+            autosave: None,
         }
     }
 }
@@ -379,6 +383,12 @@ fn run_loop(
                 s.game_state = Some(GameState::read(core.as_ref()));
             }
         }
+        if let Some(path) = &cfg.autosave
+            && frame_count.is_multiple_of(3600)
+            && let Ok(data) = core.save_state()
+        {
+            let _ = std::fs::write(path, data);
+        }
 
         // Audio + pacing.
         audio_buf.clear();
@@ -472,6 +482,7 @@ mod tests {
             frame_duration: Duration::from_millis(1),
             ring: None,
             rom_path: None,
+            autosave: None,
         }
     }
 

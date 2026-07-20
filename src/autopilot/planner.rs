@@ -112,11 +112,22 @@ pub fn run_planner(
     goal: String,
     events: Sender<PlannerEvent>,
 ) {
+    run_planner_capped(ask, driver, journal, goal, events, STEP_CAP)
+}
+
+pub fn run_planner_capped(
+    ask: impl Fn(&str, String, Option<&std::path::Path>) -> Result<String>,
+    driver: &Driver,
+    journal: Arc<Mutex<Journal>>,
+    goal: String,
+    events: Sender<PlannerEvent>,
+    step_cap: usize,
+) {
     let system = format!("{}\n\n{}", crate::copilot::SYSTEM_PROMPT, ACTION_VOCAB);
     let mut fail_streak = 0u32;
     let mut last_sig: Option<(String, String)> = None;
     let mut repeat_count = 0u32;
-    for step in 0..STEP_CAP {
+    for step in 0..step_cap {
         if driver.abort.load(Ordering::SeqCst) {
             let _ = events.send(PlannerEvent::Finished("aborted by player".into()));
             return;
@@ -306,6 +317,7 @@ mod tests {
                 frame_duration: std::time::Duration::from_micros(200),
                 ring: None,
                 rom_path: None,
+                autosave: None,
             },
         );
         let driver = Driver::new(

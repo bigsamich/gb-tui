@@ -176,7 +176,7 @@ fn parse_args() -> Result<Args> {
 ///  [--model NAME] [--steps N] [--journal DIR] [--realtime]`
 fn run_play() -> Result<()> {
     use gb_tui::autopilot::Driver;
-    use gb_tui::autopilot::planner::{PlannerEvent, run_planner};
+    use gb_tui::autopilot::planner::{PlannerEvent, run_planner_capped};
     use gb_tui::copilot;
     use gb_tui::emu::{EmuConfig, EmuHandle};
     use gb_tui::journal::Journal;
@@ -208,7 +208,6 @@ fn run_play() -> Result<()> {
     }
     let rom_path = rom.ok_or_else(|| anyhow!("play requires --rom"))?;
     let state_path = state.ok_or_else(|| anyhow!("play requires --state"))?;
-    let _ = steps; // step cap currently fixed inside the planner (50)
 
     let mut core = GbCore::new();
     core.load_rom(&std::fs::read(&rom_path)?, None)?;
@@ -223,6 +222,7 @@ fn run_play() -> Result<()> {
             },
             ring: None,
             rom_path: None,
+            autosave: Some(state_path.clone()),
         },
     );
     let abort = Arc::new(AtomicBool::new(false));
@@ -256,7 +256,7 @@ fn run_play() -> Result<()> {
     });
 
     match backend.as_str() {
-        "ollama" => run_planner(
+        "ollama" => run_planner_capped(
             |sys, user, shot| {
                 let img = shot
                     .filter(|_| cfg.vision)
@@ -267,13 +267,15 @@ fn run_play() -> Result<()> {
             Arc::clone(&journal),
             goal,
             tx,
+            steps,
         ),
-        "claude" => run_planner(
+        "claude" => run_planner_capped(
             |sys, user, _shot| ask_claude_cli(sys, user),
             &driver,
             Arc::clone(&journal),
             goal,
             tx,
+            steps,
         ),
         other => bail!("unknown backend {other} (want ollama|claude)"),
     }

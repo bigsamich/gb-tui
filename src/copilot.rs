@@ -141,7 +141,7 @@ fn stream_chat(cfg: &Config, req: &HintRequest, out: &Sender<CopilotMsg>) -> Res
         "stream": true,
     });
     let resp = ureq::post(&format!("{}/api/chat", cfg.ollama_url))
-        .timeout(std::time::Duration::from_secs(120))
+        .timeout(std::time::Duration::from_secs(600))
         .send_json(body)
         .context("Ollama request failed")?;
     let reader = std::io::BufReader::new(resp.into_reader());
@@ -215,7 +215,7 @@ fn ask_blocking_inner(
         body["format"] = json!("json");
     }
     let resp = ureq::post(&format!("{}/api/chat", cfg.ollama_url))
-        .timeout(std::time::Duration::from_secs(120))
+        .timeout(std::time::Duration::from_secs(600))
         .send_json(body)
         .context("Ollama request failed")?;
     let v: serde_json::Value = resp.into_json()?;
