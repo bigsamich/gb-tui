@@ -189,6 +189,15 @@ def worker(idx, src, ticks, scratch):
     shutil.copy(src, state)
     emu = X.Emu(state)
     emu.run(f"wait:{23 + idx * 71}")            # RNG divergence
+    # clear any opening cutscene/dialog: B-mash until we can actually move
+    for _ in range(40):
+        b = emu.snapshot()
+        if b["in_battle"]:
+            break
+        emu.run("b:8 wait:90 down:16 wait:14")
+        a = emu.snapshot()
+        if (a["x"], a["y"]) != (b["x"], b["y"]) or a["map"] != b["map"]:
+            break
     log = open(ROLL / f"brock-w{idx}-{int(time.time())}.jsonl", "w")
     visited, blocked, exits_used = set(), set(), {}
     stuck, faints, last = 0, 0, None
