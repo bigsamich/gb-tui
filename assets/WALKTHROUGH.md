@@ -40,6 +40,9 @@ Key team facts:
 ## Route path between gyms (overworld order)
 Pallet → Route 1 → Viridian → Route 2 → **Viridian Forest** → Pewter (Brock) → Route 3 → **Mt. Moon** → Route 4 → **Cerulean (Misty)** → Nugget Bridge/Routes 24-25 (Bill) → Route 5 → Vermilion (**Surge**, needs Cut for the tree / S.S. Anne) → Routes 6-11 → Rock Tunnel (needs Flash) → Lavender → Celadon (**Erika**, Rocket Hideout) → Saffron (**Sabrina**, after Silph Co.) → Fuchsia (**Koga**, Safari Zone for HMs) → Routes 12-15 → Cinnabar (**Blaine**, needs Surf) → back to Viridian (**Giovanni**) → Victory Road → Elite Four.
 
+## Optional pickups worth knowing
+- **Magikarp salesman** — in the **Route 4 / Mt Moon Pokémon Center** a man sells a **Magikarp for $500**. Magikarp is near-useless early (Splash/Tackle) but evolves into **Gyarados** (Water/Flying, 125 Atk / 95 HP) at **L20** — a top-tier attacker. Rule of thumb: **skip it if you chose Squirtle** (you already have Water); **grab it with Charmander or Bulbasaur** if you can spare the $500, since it's your best early Water option. Caveat: Gyarados is **4× weak to Electric** and 2× to Rock.
+
 ## HMs you'll need (and where they gate progress)
 - **HM01 Cut** — from S.S. Anne (Vermilion); clears the tree blocking Route 9/Surge area and bushes.
 - **HM03 Surf** — Safari Zone (Fuchsia); required for Cinnabar/Blaine and much of the late map.

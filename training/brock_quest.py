@@ -29,7 +29,8 @@ import navigate as NAV
 
 ROOT = Path(__file__).resolve().parent.parent
 ROLL = Path(__file__).resolve().parent / "rollouts"
-GOAL = "Beat Brock, the Pewter City Gym Leader, and earn the Boulder Badge."
+GOAL = ("Beat Misty, the Cerulean City Gym Leader, for the Cascade Badge. "
+        "First beat Brock in Pewter, then cross Mt Moon to reach Cerulean.")
 
 
 def frontier_step(map_id, pos, visited, blocked):
@@ -207,11 +208,16 @@ def worker(idx, src, ticks, scratch):
     DIRS = {'u': "up:16 wait:8", 'd': "down:16 wait:8",
             'l': "left:16 wait:8", 'r': "right:16 wait:8"}
     CONN_DIR = {"conn-north": 'u', "conn-south": 'd', "conn-west": 'l', "conn-east": 'r'}
+    brock_done = False
     for t in range(ticks):
         s = emu.snapshot()
-        if s["badges"] & 1:
+        if (s["badges"] & 1) and not brock_done:
+            brock_done = True
             log.write(json.dumps({"event": "BROCK-BEATEN", "tick": t, "faints": faints}) + "\n")
             print(f"[w{idx}] ** BROCK-BEATEN at tick {t} (faints={faints}) **", flush=True)
+        if s["badges"] & 2:      # Cascade Badge = Misty beaten
+            log.write(json.dumps({"event": "MISTY-BEATEN", "tick": t, "faints": faints}) + "\n")
+            print(f"[w{idx}] *** MISTY-BEATEN at tick {t} (faints={faints}) ***", flush=True)
             break
         if s["in_battle"]:
             mapname = NAV.registry().get(s["map"], {}).get("name", "")
@@ -236,13 +242,21 @@ def worker(idx, src, ticks, scratch):
             if last_dir is not None:
                 dx, dy = {'u': (0, -1), 'd': (0, 1), 'l': (-1, 0), 'r': (1, 0)}[last_dir]
                 blocked.add((s["map"], (pos[0] + dx, pos[1] + dy)))
-            # dialogs close with B; A only as rare escalation (blocking trainers)
-            emu.run("b:8 wait:100 b:8 wait:60")
+            # dialogs close with B (never A while exploring — A talks to NPCs like
+            # Oak and opens a dialog loop). Then step in a genuinely OPEN direction.
+            emu.run("b:8 wait:90")
+            gg = NAV.grid(s["map"])
+            if gg:
+                g, w, h = gg
+                opens = [d for d, (dx, dy) in
+                         (('u', (0, -1)), ('d', (0, 1)), ('l', (-1, 0)), ('r', (1, 0)))
+                         if 0 <= pos[0] + dx < w and 0 <= pos[1] + dy < h
+                         and g[pos[1] + dy][pos[0] + dx]
+                         and (s["map"], (pos[0] + dx, pos[1] + dy)) not in blocked]
+                if opens:
+                    emu.run(DIRS[rng.choice(opens)])
             if stuck >= 3:
-                emu.run("a:8 wait:140 b:8 wait:100")
-                emu.run(DIRS[rng.choice("udlr")])
-                if target_exit:                        # exit unreachable? re-choose
-                    target_exit = None
+                target_exit = None                     # re-choose exit
                 stuck = 0
         else:
             stuck = 0

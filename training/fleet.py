@@ -60,7 +60,7 @@ def worker(idx: int, src: str, ticks: int, scratch: str):
     emu = X.Emu(state)
     # RNG divergence: unique idle before acting
     emu.run(f"wait:{17 + idx * 53}")
-    log = open(ROLL / f"fleet-w{idx}-{int(time.time())}.jsonl", "w")
+    log = open(ROLL / f"fleet-w{idx}-{os.getpid()}.jsonl", "w")
     battles = 0
     for t in range(ticks):
         s = emu.snapshot()
@@ -79,17 +79,23 @@ def worker(idx: int, src: str, ticks: int, scratch: str):
             if s["in_battle"]:
                 battles += 1
             continue
-        # overworld: pace inside the Route 4 grass band (x 66..72, rows 10-15)
-        if s["map"] == 15:
-            if s["x"] <= 65:
-                emu.run("right:16 wait:8")
-            elif s["x"] >= 72:
-                emu.run("left:16 wait:8")
-            else:
-                emu.run("left:16 wait:8" if (t + idx) % 2 else "right:16 wait:8")
-        else:
-            emu.run("b:8 wait:40")
-        # unstick every 12 quiet ticks
+        # random-walk the current map on walkable tiles to trigger encounters
+        gg = NAV.grid(s["map"])
+        moved = False
+        if gg:
+            g, w, h = gg
+            opts = []
+            for d, (dx, dy) in (("left:16 wait:8", (-1, 0)), ("right:16 wait:8", (1, 0)),
+                                 ("up:16 wait:8", (0, -1)), ("down:16 wait:8", (0, 1))):
+                nx, ny = s["x"] + dx, s["y"] + dy
+                if 0 <= nx < w and 0 <= ny < h and g[ny][nx]:
+                    opts.append(d)
+            if opts:
+                import random as _r
+                emu.run(_r.Random(t * 7 + idx).choice(opts))
+                moved = True
+        if not moved:
+            emu.run("b:8 wait:40")           # dialog/edge unstick
         if t % 12 == 11:
             emu.run("b:8 wait:40")
     log.write(json.dumps({"scenario": f"fleet-w{idx}", "result": "done",
@@ -105,7 +111,7 @@ def main():
     ap.add_argument("--ticks", type=int, default=250)
     args = ap.parse_args()
     ROLL.mkdir(exist_ok=True)
-    scratch = Path(os.environ.get("TMPDIR", "/tmp")) / f"fleet-{int(time.time())}"
+    scratch = Path(os.environ.get("TMPDIR", "/tmp")) / f"fleet-{int(time.time())}-{os.getpid()}"
     scratch.mkdir(parents=True)
     procs = [mp.Process(target=worker, args=(i, args.state, args.ticks, str(scratch)))
              for i in range(args.workers)]

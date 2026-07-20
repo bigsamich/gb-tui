@@ -17,6 +17,7 @@ import mine_journals
 from synth import battle as synth_battle  # noqa: E402
 from synth import meta as synth_meta
 from synth import nav as synth_nav
+from synth import npcs as synth_npcs
 
 DATA = Path(__file__).resolve().parent / "data"
 rng = random.Random(42)
@@ -38,6 +39,7 @@ def main():
         "battle": synth_battle.generate(),
         "nav": synth_nav.generate(),
         "meta": synth_meta.generate(),
+        "npc": synth_npcs.generate(),
         "journal": mine_journals.mine(),
     }
     all_ex = []
