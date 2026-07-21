@@ -14,7 +14,7 @@ OUTDIR="${2:?output dir}"
 NAME="${3:?ollama base name, e.g. pokered-8b-v3}"
 LLAMA="${LLAMA_CPP:-/tmp/llama.cpp}"
 CONVERT="$LLAMA/convert_hf_to_gguf.py"
-QUANT="$LLAMA/tools/quantize"; [ -x "$QUANT" ] || QUANT="$(find "$LLAMA" -name 'llama-quantize' -o -name 'quantize' 2>/dev/null | head -1)"
+QUANT="$LLAMA/build-cpu/bin/llama-quantize"; [ -x "$QUANT" ] || QUANT="$(find "$LLAMA" -type f \( -name 'llama-quantize' -o -name 'quantize' \) 2>/dev/null | head -1)"
 
 f16="$OUTDIR/.$NAME.f16.gguf"
 q8="$OUTDIR/$NAME.q8_0.gguf"
