@@ -1,9 +1,6 @@
+# training/ now holds only local heavy artifacts (the Python pipeline moved to
+# pipeline/ and games/<game>/). Everything here is local/gitignored.
 .venv/
 runs/
-data/
-__pycache__/
 llama.cpp/
-rollouts/
-scenarios/
-autoplay_runs/
-data_demos/
+__pycache__/

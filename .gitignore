@@ -6,3 +6,18 @@ run/
 run/maps/
 gb-tui.toml
 journal/
+
+# python caches
+__pycache__/
+*.pyc
+
+# per-game local artifacts (training-data pools, fleet logs) — knowledge/ IS tracked
+games/*/data/
+games/*/data_demos/
+games/*/autoplay_runs/
+games/*/rollouts/
+games/*/scenarios/
+games/*/subgoals.json
+
+# trained ggufs per game
+models/

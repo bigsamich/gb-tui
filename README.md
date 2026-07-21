@@ -1,14 +1,61 @@
 # gb-tui
 
-A Game Boy / Game Boy Color emulator for your terminal, built in Rust with
-[ratatui](https://ratatui.rs) and the [boytacean](https://crates.io/crates/boytacean) core.
+A Game Boy / Game Boy Color emulator for your terminal (Rust + [ratatui](https://ratatui.rs)
++ the [boytacean](https://crates.io/crates/boytacean) core) **and** a game-agnostic
+skill engine that trains a small local model to play any Game Boy ROM.
 
-## Requirements
+## Skill engine — the 6-command quickstart
+
+Drop in a ROM, teach a model via three interchangeable skill sources, distill, and run.
+Everything is driven by one CLI, `./gbskill <verb> <game>`:
+
+```bash
+./gbskill init  <game> --rom <rom.gb>   # scaffold games/<game>/ (adapter stub + knowledge)
+./gbskill play  <game>                  # 1) YOU play in the TUI; records training data
+./gbskill guide <game>                  # 2) AI-teacher-corrected fleet; records corrections
+./gbskill learn <game> --guide <file>   # 3) walkthrough -> reward -> autonomous fleet
+./gbskill distill <game>                # data -> LoRA -> q8_0 + q4_K_M ggufs, imported to Ollama
+./gbskill run   <game>                  # watch the trained model play
+```
+
+`./gbskill status <game>` shows collected-example counts, dataset versions, trained
+models, and fleet state. `play` / `guide` / `learn` can run in any order and any number
+of times before `distill` — they all append to the same `games/<game>/data/` pool. Loop
+`learn → distill → learn` to self-improve.
+
+**Pokémon Red** is the reference game (`games/pokemon_red/`). Adding a new game = write one
+`games/<game>/adapter.py` (subclass `pipeline/adapter.py:GameAdapter`) and drop data into
+`games/<game>/knowledge/`. Full design: `docs/superpowers/specs/2026-07-21-game-agnostic-skill-engine.md`.
+
+### Layout
+
+```
+gbskill                  # the CLI dispatcher
+pipeline/                # game-AGNOSTIC core (adapter ABC, dataset build, LoRA, ggufs,
+                         #   autoplay/fleet, the 3 teachers, generic reward)
+  _bootstrap.py          # repo-root finder + sys.path/anchors ($GBSKILL_GAME)
+games/<game>/            # per-game package
+  adapter.py             # implements GameAdapter
+  context.py executor.py navigate.py   # game knowledge + RAM/exec (Pokémon Red)
+  knowledge/             # facts (json + gamedata)  [tracked]
+  data/                  # collected training examples (all 3 modes)  [gitignored]
+training/                # local heavy artifacts: .venv/, llama.cpp/, runs/ (models)  [gitignored]
+src/                     # the Rust emulator (already any-GB-game)
+```
+
+The Python stack lives in `training/.venv` (torch/transformers). Run modules through it,
+e.g. `training/.venv/bin/python pipeline/build_dataset.py`; `gbskill` uses it automatically.
+
+---
+
+## Emulator
+
+### Requirements
 
 - A truecolor terminal (any modern one)
 - Linux: `libasound2-dev` (ALSA headers) to build audio support
 
-## Run
+### Run
 
     cargo run --release -- path/to/roms/      # ROM browser
     cargo run --release -- path/to/game.gb    # boot a ROM directly
@@ -20,7 +67,7 @@ your default output device; terminals that support the kitty keyboard
 protocol (kitty, WezTerm, foot) get true button hold/release handling, and
 hold-Space turbo instead of toggle.
 
-## Keys
+### Keys
 
 | Key | Action | Key | Action |
 | --- | --- | --- | --- |
@@ -35,14 +82,14 @@ Battery saves are written as `<rom>.sav` next to the ROM (compatible with
 other emulators); save states as `<rom>.st1`–`.st4`. Core warnings go to
 `$TMPDIR/gb-tui.stderr.log` so they never disturb the display.
 
-## Tests
+### Tests
 
 `cargo test` — includes a headless run of the committed, freely-licensed
 [dmg-acid2](https://github.com/mattcurrie/dmg-acid2) test ROM. Drop your own
 legally-dumped `test-roms/pokemon-red.gb` (gitignored) to enable the
 Pokémon Red compatibility tests.
 
-## Architecture
+### Architecture
 
 The frontend talks to the emulator only through an `EmulatorCore` trait
 (`src/core/`), so a Game Boy Advance core can slot in later. Emulation runs
@@ -51,7 +98,7 @@ blocking ring buffer that the cpal output stream drains at 44.1 kHz. The
 screen renders as `▀` half-block cells (two pixels per cell) with
 aspect-preserving nearest-neighbor scaling.
 
-## AI copilot (local)
+### AI copilot (local)
 
 With [Ollama](https://ollama.com) running locally (`ollama serve` + a pulled
 model), the TUI gains an AI copilot:
