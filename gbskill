@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+"""gbskill — the game-agnostic skill-engine CLI.
+
+Drop in any Game Boy game, teach a model to play it via three interchangeable skill
+sources, then distill and run. See README.md for the 6-command quickstart.
+
+Usage:
+  ./gbskill <verb> <game> [args...]
+
+Verbs:
+  init    <game> --rom <rom.gb>   scaffold games/<game>/ (adapter stub + knowledge)
+  play    <game>                  (1) YOU play in the TUI; records training data
+  guide   <game>                  (2) AI-teacher-corrected fleet; records corrections
+  learn   <game> [--guide <file>] (3) walkthrough -> reward -> autonomous fleet
+  distill <game> [args...]        data -> LoRA -> q8_0 + q4_K_M ggufs
+  run     <game> [--fleet] [args] watch the trained model play
+  status  <game>                  collected-example counts, model versions, fleet state
+
+Every verb sets $GBSKILL_GAME=<game> and shells out to the matching pipeline module.
+"""
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent
+PIPE = REPO / "pipeline"
+GAMES = REPO / "games"
+_VENV = REPO / "training/.venv/bin/python"
+PY = str(_VENV) if _VENV.exists() else sys.executable
+
+VERBS = ["init", "play", "guide", "learn", "distill", "run", "status"]
+
+
+def usage(code=0):
+    print(__doc__.strip())
+    sys.exit(code)
+
+
+def sh(mod, args, game, check=True):
+    """Run a pipeline module (or script) with GBSKILL_GAME set."""
+    target = PIPE / mod
+    if mod.endswith(".sh"):
+        cmd = ["bash", str(target), *args]
+    else:
+        cmd = [PY, str(target), *args]
+    env = dict(os.environ, GBSKILL_GAME=game)
+    print(f">> {game}: {mod} {' '.join(args)}", flush=True)
+    rc = subprocess.call(cmd, env=env, cwd=str(REPO))
+    if check and rc != 0:
+        sys.exit(rc)
+    return rc
+
+
+def cmd_init(game, args):
+    """Scaffold games/<game>/ from a template (stub)."""
+    gdir = GAMES / game
+    if gdir.exists():
+        print(f"games/{game}/ already exists — nothing to do.")
+        return
+    (gdir / "knowledge").mkdir(parents=True)
+    (gdir / "data").mkdir()
+    rom = ""
+    if "--rom" in args:
+        rom = args[args.index("--rom") + 1] if args.index("--rom") + 1 < len(args) else ""
+    (gdir / "adapter.py").write_text(
+        '"""%s adapter — implement GameAdapter for this game."""\n'
+        "import sys\n"
+        "from pathlib import Path\n\n"
+        'sys.path.insert(0, str(next(p for p in Path(__file__).resolve().parents\n'
+        '                            if (p / ".git").exists()) / "pipeline"))\n'
+        "import _bootstrap  # noqa: E402\n"
+        "from adapter import GameAdapter  # noqa: E402\n\n\n"
+        "class %s(GameAdapter):\n"
+        "    action_space = []  # TODO\n\n"
+        "    def snapshot(self, raw_ram):\n        raise NotImplementedError\n\n"
+        "    def state_text(self, state):\n        raise NotImplementedError\n\n"
+        "    def build_facts(self, state):\n        raise NotImplementedError\n\n"
+        "    def objective(self, state, subgoals=None):\n        raise NotImplementedError\n\n"
+        "    def execute(self, action, state):\n        raise NotImplementedError\n"
+        % (game, "".join(w.title() for w in game.split("_")))
+    )
+    (gdir / "README.md").write_text(f"# {game}\n\nROM: {rom or '(unset)'}\n\n"
+                                    "Fill in `adapter.py` and drop game data into `knowledge/`.\n")
+    print(f"scaffolded games/{game}/  (adapter.py stub + knowledge/ + data/)")
+    if rom:
+        print(f"  rom noted: {rom}")
+
+
+def cmd_status(game):
+    gdir = GAMES / game
+    print(f"=== gbskill status: {game} ===")
+    if not gdir.exists():
+        print(f"  (no games/{game}/ — run: ./gbskill init {game} --rom <rom.gb>)")
+        return
+    data = gdir / "data"
+    if data.exists():
+        vers = sorted(p for p in data.glob("v*") if p.is_dir())
+        print(f"  datasets ({len(vers)}):")
+        for v in vers:
+            tr = v / "train.jsonl"
+            n = sum(1 for _ in tr.open()) if tr.exists() else 0
+            print(f"    {v.name}: {n} train examples")
+    for pool, label in [("autoplay_runs", "autoplay logs"),
+                        ("rollouts", "rollout logs")]:
+        d = gdir / pool
+        if d.exists():
+            logs = list(d.rglob("*.jsonl"))
+            print(f"  {label}: {len(logs)} files")
+    runs = REPO / "training/runs"
+    if runs.exists():
+        models = sorted(p.name for p in runs.iterdir() if p.is_dir())
+        print(f"  trained runs (training/runs): {', '.join(models) or '(none)'}")
+    live = list((REPO / "run").glob("autoplay-*.log")) if (REPO / "run").exists() else []
+    print(f"  fleet logs (run/autoplay-*.log): {len(live)}")
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        usage(0)
+    verb = argv[0]
+    if verb not in VERBS:
+        print(f"unknown verb: {verb}\n")
+        usage(2)
+    if len(argv) < 2:
+        print(f"'{verb}' needs a <game>.\n")
+        usage(2)
+    game = argv[1]
+    rest = argv[2:]
+
+    if verb == "init":
+        cmd_init(game, rest)
+    elif verb == "status":
+        cmd_status(game)
+    elif verb == "play":
+        sh("play_record.py", rest, game)
+    elif verb == "guide":
+        sh("guide_fleet.py", rest, game)
+    elif verb == "learn":
+        if "--guide" in rest:
+            i = rest.index("--guide")
+            gfile = rest[i + 1:i + 2]
+            sh("walkthrough_ingest.py", gfile, game)
+            rest = rest[:i] + rest[i + 2:]
+        sh("learn_selfplay.py", rest, game)
+    elif verb == "distill":
+        # data -> LoRA -> BOTH ggufs (standing rule: always q8_0 + q4_K_M)
+        sh("build_dataset.py", [], game)
+        sh("train_lora.py", rest, game)
+        print("distill: LoRA trained. To package ggufs, merge the adapter then run:")
+        print("  ./gbskill distill %s  # or directly: pipeline/make_ggufs.sh "
+              "<merged_dir> <out_dir> <ollama_name>" % game)
+    elif verb == "run":
+        if "--fleet" in rest:
+            rest = [a for a in rest if a != "--fleet"]
+            sh("fleet_auto.py", rest, game)
+        else:
+            sh("autoplay.py", rest, game)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
