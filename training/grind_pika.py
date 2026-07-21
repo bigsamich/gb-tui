@@ -158,8 +158,8 @@ def main():
             print(f"== PIKACHU L{pk['level']} (hp {pk['hp']}/{pk['max_hp']}) "
                   f"char L{ch['level']} hp {ch['hp']} money ${s['money']}", flush=True)
             last_lvl = pk["level"]
-        if pk["level"] >= 20:
-            print("== TARGET REACHED: PIKACHU L20 ==", flush=True)
+        if pk["level"] >= 21:
+            print("== TARGET REACHED: PIKACHU L21 ==", flush=True)
             return
         if s["in_battle"]:
             handle_battle(emu, s)

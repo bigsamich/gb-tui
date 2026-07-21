@@ -46,43 +46,49 @@ def bake(name: str, bx: int) -> bool:
     emu.run(f"{mv} wait:12 up:4 wait:12")
     # dex (2 pages) + "you want" text + YES/NO menu, then confirm YES
     emu.run("a:8 wait:200 a:8 wait:160 a:8 wait:160 a:8 wait:160 a:8 wait:230")
-    emu.run("b:8 wait:180 b:8 wait:180")           # decline nickname
+    # decline nickname (YES/NO menu — pick NO = down+A) and clear trailing Oak text
+    emu.run("down:4 wait:16 a:8 wait:170 b:8 wait:150 b:8 wait:150 b:8 wait:150")
     s = emu.snapshot()
     if s["party_n"] != 1:
         print(f"{name}: FAILED to obtain (party={s['party_n']})"); return False
     got = s["party"][0]["species"]
-    # walk toward the exit until the rival stops us
-    for _ in range(16):
-        s = emu.snapshot()
-        if s["in_battle"]:
-            break
-        emu.run("down:16 wait:14 b:8 wait:60")
-    # fight the rival with move slot 0
+    import navigate as NAV
+    # 1) clear any trailing dialog, then walk toward the exit to trigger Gary
+    for _ in range(6):
+        emu.run("b:8 wait:110")
     for _ in range(20):
+        if emu.snapshot()["in_battle"]:
+            break
+        emu.run("down:16 wait:16 a:8 wait:130 b:8 wait:80")
+    # 2) fight the rival (win or lose — both are valid starts)
+    for _ in range(25):
         if not emu.snapshot()["in_battle"]:
             break
         emu.run(ATK)
-    # clear Oak's post-battle tutorial until free to move
-    clear_until_free(emu, tries=45)
-    # walk OUT of the lab to Pallet Town, past Oak (avoids workers cornering on him)
-    import navigate as NAV
+    # 3) clear Oak's post-battle speech until free to move
+    for _ in range(40):
+        b = emu.snapshot()
+        emu.run("b:8 wait:100 down:16 wait:14")
+        a = emu.snapshot()
+        if (a["x"], a["y"]) != (b["x"], b["y"]) or a["map"] != b["map"]:
+            break
+    # 4) walk OUT of the lab to Pallet Town (past Oak — workers can't corner on him)
     exited = False
-    for _ in range(30):
+    for _ in range(25):
         s = emu.snapshot()
-        if s["map"] != 40:                    # left the lab
+        if s["map"] != 40:
             exited = True
             break
-        # head to the exit door at (4/5, 11), then step down through it
-        steps = NAV.bfs_path(40, (s["x"], s["y"]), (5, 11)) or \
-                NAV.bfs_path(40, (s["x"], s["y"]), (4, 11))
+        steps = NAV.bfs_path(40, (s["x"], s["y"]), (4, 11)) or \
+                NAV.bfs_path(40, (s["x"], s["y"]), (5, 11))
         if steps:
             emu.run(NAV.steps_to_script(steps, cap=10))
             emu.run("down:16 wait:30")
         else:
-            emu.run("down:16 wait:14 b:8 wait:40")
+            emu.run("down:16 wait:14")
     s = emu.snapshot()
     lead = s["party"][0]
-    print(f"{name}: got {got} L{lead['level']}; exited-lab={exited} -> "
+    print(f"{name}: {got} L{lead['level']}; exited-lab={exited} -> "
           f"map={s['map']} pos=({s['x']},{s['y']})")
     return exited and s["party_n"] == 1
 

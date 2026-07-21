@@ -97,6 +97,39 @@ import re as _re
 
 
 @lru_cache(maxsize=256)
+@lru_cache(maxsize=1)
+def _item_names() -> dict:
+    """1-based item id -> display name, from items/names.asm."""
+    f = ASSETS / "gamedata" / "items" / "names.asm"
+    names, i = {}, 1
+    if f.exists():
+        for line in f.read_text().splitlines():
+            m = _re.match(r'\s*li "(.+)"', line)
+            if m:
+                names[i] = m.group(1)
+                i += 1
+    return names
+
+
+def item_name(iid: int) -> str:
+    return _item_names().get(iid, f"ITEM_{iid}")
+
+
+def bag_text(bag: dict) -> str:
+    """Human-readable held items, e.g. 'Holding: OAK'S PARCEL, POTION x3.'
+    A player always sees their bag; the model needs it to track quest progress."""
+    if not bag:
+        return ""
+    parts = []
+    for iid, qty in bag.items():
+        try:
+            nm = item_name(int(iid))
+        except (TypeError, ValueError):
+            continue
+        parts.append(nm if qty in (1, None) else f"{nm} x{qty}")
+    return ("Holding: " + ", ".join(parts) + ".") if parts else ""
+
+
 def map_warps(map_name: str) -> list[tuple[int, int, str]]:
     """[(x, y, destination)] from the map's object file."""
     f = ASSETS / "gamedata" / "maps" / "objects" / f"{map_name}.asm"
@@ -105,17 +138,46 @@ def map_warps(map_name: str) -> list[tuple[int, int, str]]:
     out = []
     for m in _re.finditer(r'warp_event\s+(\d+),\s*(\d+),\s*(\w+),\s*\d+', f.read_text()):
         x, y, dest = int(m.group(1)), int(m.group(2)), m.group(3)
-        if dest != "LAST_MAP":
+        if dest == "LAST_MAP":
+            # the door that leads back OUTSIDE — a human sees it; the model must too,
+            # or it can never leave a building (was the errand-blocking bug).
+            out.append((x, y, "Exit (leads back outside)"))
+        else:
             d = dest.replace("_", " ").title().replace("Pokecenter", "Pokémon Center") \
                     .replace("Mart", "Poké Mart")
             out.append((x, y, d))
     return out
 
 
+@lru_cache(maxsize=1)
+def _name_to_id():
+    import navigate as NAV
+    return {e["name"]: mid for mid, e in NAV.registry().items()}
+
+
+def map_connections(map_name: str) -> str:
+    """One line telling the model which map each edge leads to (overworld travel)."""
+    import navigate as NAV
+    mid = _name_to_id().get(map_name)
+    if mid is None:
+        return ""
+    conns = NAV.connections(mid)
+    if not conns:
+        return ""
+    reg = NAV.registry()
+    order = ["north", "south", "east", "west"]
+    parts = [f"{d} to {reg[conns[d]]['name']}" for d in order if d in conns]
+    return ("Overworld connections (walk to that map edge to travel there): "
+            + ", ".join(parts) + ".")
+
+
 def map_facts(map_name: str) -> str:
-    """FACTS block for overworld: doors/warps + encounter table for the map."""
+    """FACTS block for overworld: connections + doors/warps + encounter table."""
     _, _, _, enc = _db()
     lines = []
+    conn = map_connections(map_name)
+    if conn:
+        lines.append(conn)
     warps = map_warps(map_name)
     if warps:
         seen_dest = {}

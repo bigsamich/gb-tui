@@ -5,3 +5,5 @@ __pycache__/
 llama.cpp/
 rollouts/
 scenarios/
+autoplay_runs/
+data_demos/

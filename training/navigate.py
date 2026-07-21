@@ -73,7 +73,7 @@ def registry():
         camel = "".join(p.title() for p in name_c.split("_"))
         # fix common numeric/route patterns (ROUTE_1 -> Route1, MT_MOON_1F -> MtMoon1F ...)
         camel = re.sub(r'(\d)F$', lambda g: g.group(1) + "F", camel)
-        entry = {"name": camel, "wb": wb, "hb": hb, "id": mid}
+        entry = {"name": camel, "const": name_c, "wb": wb, "hb": hb, "id": mid}
         blk = ASSETS / "blk" / f"{camel}.blk"
         hdr = ASSETS / "headers" / f"{camel}.asm"
         if blk.exists() and hdr.exists():
@@ -139,6 +139,87 @@ def bfs_path(map_id: int, start, goal, blocked=frozenset()):
         node, d = prev[node]
         path.append(d)
     return list(reversed(path))
+
+
+@lru_cache(maxsize=1)
+def _const_to_id():
+    return {e["const"]: mid for mid, e in registry().items()}
+
+
+@lru_cache(maxsize=256)
+def connections(map_id: int):
+    """map_id -> {'north'|'south'|'east'|'west': connected_map_id} from the header."""
+    e = registry().get(map_id)
+    if not e:
+        return {}
+    hdr = ASSETS / "headers" / f"{e['name']}.asm"
+    if not hdr.exists():
+        return {}
+    c2i = _const_to_id()
+    out = {}
+    for m in re.finditer(r'connection\s+(\w+),\s*\w+,\s*(\w+),', hdr.read_text()):
+        d, const = m.group(1), m.group(2)
+        if const in c2i:
+            out[d] = c2i[const]
+    return out
+
+
+def _nearest_reachable_on_edge(map_id, start, direction):
+    """BFS-reachable tile closest to the given edge; returns (path_steps, edge_tile)."""
+    gg = grid(map_id)
+    if not gg:
+        return None, None
+    g, w, h = gg
+    from collections import deque
+    q = deque([tuple(start)])
+    prev = {tuple(start): None}
+    best = None
+    while q:
+        cur = q.popleft()
+        x, y = cur
+        # score how close this cell is to the target edge (0 = on the edge)
+        edge = {"north": y, "south": h - 1 - y, "west": x, "east": w - 1 - x}[direction]
+        if best is None or edge < best[0]:
+            best = (edge, cur)
+        for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+            n = (x + dx, y + dy)
+            if 0 <= n[0] < w and 0 <= n[1] < h and n not in prev and g[n[1]][n[0]]:
+                prev[n] = cur
+                q.append(n)
+    if not best:
+        return None, None
+    # reconstruct path start->best cell
+    node = best[1]
+    path = []
+    while prev.get(node) is not None:
+        p = prev[node]
+        dx, dy = node[0] - p[0], node[1] - p[1]
+        path.append({(0, -1): 'u', (0, 1): 'd', (-1, 0): 'l', (1, 0): 'r'}[(dx, dy)])
+        node = p
+    return list(reversed(path)), best[1]
+
+
+def cross_edge_script(map_id, start, direction):
+    """Full button script: walk to the map's <direction> edge and step OFF it to
+    trigger the overworld connection. None if that edge has no connection."""
+    if direction not in connections(map_id):
+        return None
+    path, _tile = _nearest_reachable_on_edge(map_id, start, direction)
+    if path is None:
+        return None
+    press = {"north": "up", "south": "down", "west": "left", "east": "right"}[direction]
+    parts = []
+    # walk the path in straight runs
+    i = 0
+    while i < len(path):
+        d0 = path[i]
+        k = 0
+        while i < len(path) and path[i] == d0:
+            k += 1; i += 1
+        parts.append(f"{ {'u':'up','d':'down','l':'left','r':'right'}[d0] }:{k*16} wait:10")
+    # step off the edge (extra presses to cross the transition)
+    parts.append(f"{press}:32 wait:40 {press}:16 wait:30")
+    return " ".join(parts)
 
 
 def steps_to_script(steps, cap=6):
