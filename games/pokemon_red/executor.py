@@ -223,6 +223,11 @@ class Emu:
                 # one button per decision step. Report whether the starter landed.
                 self.run("up:4 wait:12 a:8 wait:160")
                 return "took-starter" if self.snapshot()["party"] else "opened-dialog"
+            # In Oak's lab (with a party) the interactable -- Prof. Oak for the parcel
+            # delivery -- stands ABOVE you, so face up before pressing A.
+            if snap.get("map") == 40:
+                self.run("up:4 wait:10 a:8 wait:120")
+                return "interacted"
             # Generic: open whatever is in front (A). The model advances/answers any
             # resulting dialog itself on following steps by reading SCREEN.
             self.run("a:8 wait:120")

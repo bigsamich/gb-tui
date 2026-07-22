@@ -186,6 +186,11 @@ def run(state_path: str, model: str, url: str, steps: int, tag: str):
             raw = ""
             print(f"  [step {step}] model error: {ex}", flush=True)
         act = extract_action(raw) or {"action": "press", "buttons": "b:8 wait:60"}
+        # "Walk to where I already am" = the model wants to ENGAGE what's here (e.g. it
+        # navigated to Oak at (5,4) but keeps re-issuing walk_to instead of interacting).
+        # Convert a redundant self-targeted walk_to into an interact.
+        if act.get("action") == "walk_to" and (act.get("x"), act.get("y")) == (s["x"], s["y"]):
+            act = {"action": "interact"}
         res = emu.do(act, s)
         # Log the FULL structured snapshot (incl. party hp/moves/pp and, in battle,
         # enemy species/hp/level) so DAgger mining can derive teacher labels
