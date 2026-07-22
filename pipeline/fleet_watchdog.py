@@ -24,25 +24,25 @@ RUNS = _bootstrap.GAME_DIR / "autoplay_runs"
 LOG = ROOT / "run" / "fleet_watchdog.log"
 CHECK_EVERY = 180          # seconds between sweeps
 WEDGE_AFTER = 600          # jsonl untouched this long => wedged => restart
-# v4 = v2's navigation (no heal-collapse) + the starter/dialog skills, verified by the
-# regression eval. ONE model for the whole first pass, so the whole fleet runs v4.
-V4 = "pokered-8b-v4"
-V4Q4 = "pokered-8b-v4-q4"
+# v5 = v4 + errand demos (deliver -> exit lab -> head north), verified: it executes the
+# parcel errand v4 couldn't, with no navigation regression. Only q4 was built. Whole
+# fleet runs v5-q4.
+V5Q4 = "pokered-8b-v5-q4"
 
 # (tag, model, state-file) -- the fleet we keep alive.
 FLEET = [
-    ("charmander-q8-0", V4, "auto-charmander-q8-0.state"),
-    ("squirtle-q8-1", V4, "auto-squirtle-q8-1.state"),
-    ("bulbasaur-q8-2", V4, "auto-bulbasaur-q8-2.state"),
-    ("charmander-q4-0", V4Q4, "auto-charmander-q4-0.state"),
-    ("squirtle-q4-1", V4Q4, "auto-squirtle-q4-1.state"),
-    ("bulbasaur-q4-2", V4Q4, "auto-bulbasaur-q4-2.state"),
-    ("charmander-q4-3", V4Q4, "auto-charmander-q4-3.state"),
-    ("squirtle-q4-4", V4Q4, "auto-squirtle-q4-4.state"),
-    ("bulbasaur-q4-5", V4Q4, "auto-bulbasaur-q4-5.state"),
-    ("charmander-q4-6", V4Q4, "auto-charmander-q4-6.state"),
-    ("squirtle-q4-7", V4Q4, "auto-squirtle-q4-7.state"),
-    ("bulbasaur-q4-8", V4Q4, "auto-bulbasaur-q4-8.state"),
+    ("charmander-q8-0", V5Q4, "auto-charmander-q8-0.state"),
+    ("squirtle-q8-1", V5Q4, "auto-squirtle-q8-1.state"),
+    ("bulbasaur-q8-2", V5Q4, "auto-bulbasaur-q8-2.state"),
+    ("charmander-q4-0", V5Q4, "auto-charmander-q4-0.state"),
+    ("squirtle-q4-1", V5Q4, "auto-squirtle-q4-1.state"),
+    ("bulbasaur-q4-2", V5Q4, "auto-bulbasaur-q4-2.state"),
+    ("charmander-q4-3", V5Q4, "auto-charmander-q4-3.state"),
+    ("squirtle-q4-4", V5Q4, "auto-squirtle-q4-4.state"),
+    ("bulbasaur-q4-5", V5Q4, "auto-bulbasaur-q4-5.state"),
+    ("charmander-q4-6", V5Q4, "auto-charmander-q4-6.state"),
+    ("squirtle-q4-7", V5Q4, "auto-squirtle-q4-7.state"),
+    ("bulbasaur-q4-8", V5Q4, "auto-bulbasaur-q4-8.state"),
     # NOTE: self-start dropped for now (v4 loops interact-vs-walk_to at the ball; fix in
     # v5 with more walk_to-a-ball demos). This is a 12-run fleet with ASSIGNED starters
     # (4 Charmander / 4 Squirtle / 4 Bulbasaur), post-lab, goal = beat BROCK.

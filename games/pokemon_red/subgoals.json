@@ -26,7 +26,13 @@
     {
       "id": "reach-route2",
       "objective": "With the POKEDEX, go north again through Viridian City and take the NORTH exit to Route 2 (the man who was blocking the way is gone).",
-      "hint": "From Pallet -> Route 1 -> Viridian City (map 1). Head to the TOP (north) of Viridian City and step off the north edge into Route 2 (map 13).",
+      "hint": "Go NORTH toward Route 2: Pallet Town -> Route 1 -> Viridian City -> north edge to Route 2.",
+      "hint_by_map": {
+        "40": "You have the POKEDEX! First LEAVE the lab: walk_to (5,11) to step out to Pallet Town, then head north.",
+        "0": "Go NORTH out of Pallet Town: walk_to the TOP edge (around y1) to cross into Route 1.",
+        "12": "Continue NORTH up Route 1 to Viridian City (walk_to the top edge).",
+        "1": "Go to the TOP (north) of Viridian City and step off the north edge into Route 2 -- the guard is gone now that you have the POKEDEX. walk_to a north-edge tile (small y)."
+      },
       "done": {"type": "reached_map", "maps": [13, 50, 51, 47, 2, 54]}
     },
     {
