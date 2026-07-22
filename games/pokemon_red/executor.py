@@ -15,6 +15,7 @@ sys.path.insert(0, str(next(p for p in Path(__file__).resolve().parents
 import _bootstrap  # noqa: E402
 import context as C
 import navigate as NAV
+from screen import decode_tiles, TILEMAP_LEN
 
 ROOT = _bootstrap.REPO_ROOT
 KNOWLEDGE = _bootstrap.KNOWLEDGE
@@ -82,7 +83,11 @@ class Emu:
     def snapshot(self) -> dict:
         d = self.peekblock("D000", 1024)   # D000..D3FF
         cf = self.peekblock("CF00", 256)   # CF00..CFFF (enemy battle data)
-        cc = self.peekblock("CC00", 256)
+        # One wide peek covers the visible screen tilemap (wTileMap 0xC3A0, 360B) AND the
+        # CC00 block (menu cursor 0xCC26, active_idx 0xCC2F) -- no extra gb-agent call.
+        big = self.peekblock("C3A0", 2400)         # 0xC3A0 .. 0xCCFF
+        tiles = big[0:TILEMAP_LEN]
+        cc = big[0xCC00 - 0xC3A0:0xCC00 - 0xC3A0 + 256]
         def db(a): return d[a - 0xD000]
         def dw(a): return (d[a - 0xD000] << 8) | d[a - 0xD000 + 1]
         s = {
@@ -117,6 +122,15 @@ class Emu:
             s["enemy_species"] = self.species_name(cf[0xE5])
             s["enemy_hp"] = (cf[0xE6] << 8) | cf[0xE7]
             s["enemy_level"] = cf[0xF3]
+        # PERCEPTION: decode the on-screen text box / menu the way a human sees it. In the
+        # overworld with no dialog, map tiles aren't font tiles so this decodes to blanks;
+        # when a text box or menu is up, real words appear. This is what lets the model
+        # READ prompts ("want it? YES/NO") and press the right button -- no blind macros.
+        rows = [ln.rstrip() for ln in decode_tiles(tiles)]
+        lines = [ln for ln in rows if ln.strip()]
+        s["screen_text"] = " / ".join(ln.strip() for ln in lines)
+        s["screen_menu"] = any("▶" in ln or "▷" in ln for ln in rows)
+        s["menu_index"] = cc[0x26]
         return s
 
     # ---- action execution ----
@@ -124,9 +138,19 @@ class Emu:
         a = act.get("action")
         if a == "walk_to":
             # dismiss any lingering NPC/text box first — an open dialog blocks ALL
-            # movement (e.g. the clerk's "say hi to Prof. Oak!" after giving the parcel),
-            # and the model otherwise gets wedged issuing walk_to's that can't fire.
-            self.run("b:8 wait:16 b:8 wait:16")
+            # movement (e.g. the clerk's "say hi to Prof. Oak!" after giving the parcel).
+            # Oak's starter-OFFER monologue (in his lab, before you have any Pokemon) is
+            # long and re-triggers on A, so there clear adaptively with B until the player
+            # can actually move; ordinary dialogs just need a couple B's.
+            if snap.get("map") == 40 and not snap.get("party"):
+                for _ in range(16):
+                    b = self.snapshot()
+                    self.run("b:8 wait:60")
+                    self.run("down:16 wait:12")
+                    if (self.snapshot()["x"], self.snapshot()["y"]) != (b["x"], b["y"]):
+                        break
+            else:
+                self.run("b:8 wait:16 b:8 wait:16")
             snap = self.snapshot()
             mx, my = snap["x"], snap["y"]
             tx, ty = int(act["x"]), int(act["y"])
@@ -189,7 +213,19 @@ class Emu:
             self.run(str(act.get("buttons", "b:8 wait:60")))
             return "pressed"
         if a == "interact":
-            self.run("a:8 wait:180 b:8 wait:60")
+            # In Oak's lab with no Pokemon yet, interacting with a starter ball must run
+            # the WHOLE acquisition (dex pages -> "want it?" YES -> decline nickname), not
+            # a single A. Otherwise the model faces the ball but never actually takes it.
+            if snap.get("map") == 40 and not snap.get("party"):
+                # Face the ball (up) and press A ONCE to OPEN the dialog. We do NOT run a
+                # blind acquisition macro anymore -- the model now perceives the dialog via
+                # SCREEN and drives the buttons itself (press A on "want it? YES", etc.),
+                # one button per decision step. Report whether the starter landed.
+                self.run("up:4 wait:12 a:8 wait:160")
+                return "took-starter" if self.snapshot()["party"] else "opened-dialog"
+            # Generic: open whatever is in front (A). The model advances/answers any
+            # resulting dialog itself on following steps by reading SCREEN.
+            self.run("a:8 wait:120")
             return "interacted"
         if a == "heal_at_center":
             # COMPLETE heal at ANY Pokémon Center: if in a city, walk to the PC door
@@ -250,6 +286,12 @@ def state_text(s: dict) -> str:
     held = C.bag_text(s.get("bag", {}))    # the model can see its bag / quest items
     if held:
         bits.append(held)
+    txt = s.get("screen_text", "")
+    if txt and any(c.isalpha() for c in txt):   # a text box / menu is on screen
+        cue = f"SCREEN: \"{txt}\""
+        if s.get("screen_menu"):
+            cue += f" (menu cursor on option #{s.get('menu_index', 0)}; press A to confirm, B to cancel/back, ↑/↓ to move)"
+        bits.append(cue)
     return " ".join(bits)
 
 

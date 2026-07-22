@@ -1,0 +1,45 @@
+{
+  "_comment": "Grounded early-game progression checklist (Pallet -> Brock). Each subgoal is the CURRENT objective fed to the model until its done-condition (checkable from the RAM snapshot) fires, then the next becomes current. Map ids / item id 70 (OAK'S PARCEL) / badge bit 0x01 (Boulder) are all real. Extend past Brock as the fleet clears it.",
+  "subgoals": [
+    {
+      "id": "get-starter",
+      "objective": "Get your first Pokemon: in Oak's Lab, walk directly below one of the three Poke Balls and interact to take that starter.",
+      "hint": "The three balls are on the table in Oak's Lab (map 40). Stand on the tile just BELOW a ball (Charmander x6,y4 / Squirtle x7,y4 / Bulbasaur x8,y4), face up, and interact.",
+      "done": {"type": "party_nonempty"}
+    },
+    {
+      "id": "get-parcel",
+      "objective": "Go NORTH from Pallet Town up Route 1 to Viridian City, enter the Poke Mart, and talk to the clerk to receive OAK'S PARCEL.",
+      "hint": "Leave Pallet Town by the north edge -> Route 1 (map 12) -> Viridian City (map 1). The Poke Mart (map 42) is the blue-roof shop; talk to the CLERK behind the counter. You get OAK'S PARCEL.",
+      "done": {"type": "has_item", "item": 70}
+    },
+    {
+      "id": "deliver-parcel",
+      "objective": "Return SOUTH to Pallet Town and enter OAK'S LAB (not your own house), then talk to Prof. Oak to deliver OAK'S PARCEL. He gives you the POKEDEX.",
+      "hint": "Head SOUTH toward Pallet Town (map 0): from Viridian City go down Route 1 to Pallet.",
+      "hint_by_map": {
+        "0": "You are in Pallet Town. Oak's Lab is the building at the BOTTOM -- its entrance tile is (12,11). walk_to (12,11) to step inside (do NOT enter Red's house at (5,5)).",
+        "40": "You are INSIDE Oak's Lab. Prof. Oak is at the top-center. walk_to (5,4) to stand directly below him, then INTERACT (face up). Keep going -- the dialog advances and he hands over the POKEDEX; OAK'S PARCEL leaves your bag when done. Do NOT walk to (12,11) or the exit -- go UP to (5,4)."
+      },
+      "done": {"type": "lost_item", "item": 70}
+    },
+    {
+      "id": "reach-route2",
+      "objective": "With the POKEDEX, go north again through Viridian City and take the NORTH exit to Route 2 (the man who was blocking the way is gone).",
+      "hint": "From Pallet -> Route 1 -> Viridian City (map 1). Head to the TOP (north) of Viridian City and step off the north edge into Route 2 (map 13).",
+      "done": {"type": "reached_map", "maps": [13, 50, 51, 47, 2, 54]}
+    },
+    {
+      "id": "through-forest",
+      "objective": "Travel north through Route 2 into VIRIDIAN FOREST, then out its north gate to Pewter City. Battle the Bug Catchers on the way to level up (aim for level 12-14 before Brock).",
+      "hint": "Route 2 (map 13) -> Viridian Forest (map 51) via its south gate (map 50) -> north gate (map 47) -> Pewter City (map 2). Fight trainers/wild Pokemon in the forest to gain levels; heal at the Pewter Poke Center (map 58) if low.",
+      "done": {"type": "reached_map", "maps": [2, 54]}
+    },
+    {
+      "id": "beat-brock",
+      "objective": "Enter PEWTER GYM and defeat Brock to win the BOULDER BADGE.",
+      "hint": "Pewter Gym is map 54 (west side of Pewter City). Brock has GEODUDE L12 and ONIX L14, both Rock/Ground. Use WATER or GRASS moves if you have them (super-effective); a Squirtle/Bulbasaur wins easily. With Charmander, rely on repeated physical hits and heal as needed -- avoid Fire/Normal specials. Beating Brock gives Badge bit 0x01.",
+      "done": {"type": "badge", "bit": 1}
+    }
+  ]
+}

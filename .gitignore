@@ -17,7 +17,13 @@ games/*/data_demos/
 games/*/autoplay_runs/
 games/*/rollouts/
 games/*/scenarios/
-games/*/subgoals.json
 
-# trained ggufs per game
+# third-party walkthrough extractions (copyrighted guide text) stay LOCAL only —
+# the grounded structure we derive lives in the tracked subgoals.json instead
+games/*/knowledge/walkthrough/
+
+# heavy training artifacts (venv, llama.cpp build, merged models, ggufs) — never pushed
+training/.venv/
+training/llama.cpp/
+training/runs/
 models/

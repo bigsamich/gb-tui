@@ -23,6 +23,14 @@ import context as C
 import executor as X
 import prompts
 from serve_shim import ask, extract_action
+try:                                    # optional per-game dialog teacher (guide mode)
+    import dialog_teacher as DT
+except ImportError:
+    DT = None
+try:                                    # optional walkthrough-derived subgoal spine
+    import subgoals as SG
+except ImportError:
+    SG = None
 
 ROOT = _bootstrap.REPO_ROOT
 RUNS = _bootstrap.GAME_DIR / "autoplay_runs"
@@ -87,6 +95,13 @@ def run(state_path: str, model: str, url: str, steps: int, tag: str):
     start_badges = s0["badges"]
     last_key = None
     stall = 0
+    dlg_last = None       # last autopilot screen text (stall-guard)
+    dlg_reps = 0          # consecutive autopilot presses on the same screen
+    # walkthrough subgoal index -- PERSISTED to disk so a watchdog restart resumes the
+    # right subgoal (else a run that already delivered the parcel would regress to
+    # "get parcel", since that done-condition (has item 70) reverts after delivery).
+    sgidx_path = ROOT / "run" / f"{stamp}.sgidx"
+    sg_idx = int(sgidx_path.read_text()) if sgidx_path.exists() else 0
     for step in range(steps):
         s = emu.snapshot()
         seen_maps.add(s["map"])
@@ -94,8 +109,25 @@ def run(state_path: str, model: str, url: str, steps: int, tag: str):
         past_gate = bool(seen_maps & {13, 51, 2}) or s["badges"]
         has_parcel = OAKS_PARCEL in s.get("bag", {})
         has_party = bool(s.get("party"))
-        goal = objective(s["badges"], has_pokedex=bool(past_gate), has_parcel=has_parcel,
-                         has_party=has_party)
+        # WALKTHROUGH SPINE: the current subgoal is the model's directed objective. This
+        # is the fix for long-horizon progression -- the fleet could navigate but not
+        # sequence the game (got the parcel, then wandered instead of delivering it).
+        sg_hint = ""
+        if SG is not None:
+            new_idx = SG.advance(sg_idx, s)
+            if new_idx != sg_idx:
+                sgidx_path.write_text(str(new_idx))   # persist progress across restarts
+            sg_idx = new_idx
+            sg = SG.current(sg_idx)
+            if sg:
+                goal = sg["objective"]
+                sg_hint = SG.hint_for(sg, s)
+            else:
+                goal = objective(s["badges"], has_pokedex=bool(past_gate),
+                                 has_parcel=has_parcel, has_party=has_party)
+        else:
+            goal = objective(s["badges"], has_pokedex=bool(past_gate),
+                             has_parcel=has_parcel, has_party=has_party)
 
         # progress heartbeat
         if s["badges"] != start_badges:
@@ -107,8 +139,35 @@ def run(state_path: str, model: str, url: str, steps: int, tag: str):
 
         st, ctx = X.state_text(s), X.ctx_for(s)
         facts = C.build_facts(ctx)
+        if sg_hint:                             # grounded how-to for the current subgoal
+            facts = f"GUIDE: {sg_hint}" + ("\n" + facts if facts else "")
         if not has_party:                       # perception of the starter balls
             facts = STARTER_FACTS + ("\n" + facts if facts else "")
+
+        # DIALOG AUTOPILOT (guide mode): a non-battle text box / menu is not an overworld
+        # strategy decision -- it just needs the button the SCREEN calls for. The dialog
+        # TEACHER supplies that button as ground truth (reads perception, not blind timing).
+        # We apply it, log it as a SCREEN->button training example, and continue WITHOUT a
+        # model query. This keeps runs PROGRESSING through dialogs and mints clean
+        # perception-labeled data for the v4 distill -- the whole point of this restart.
+        if DT is not None and not s["in_battle"] and s.get("screen_text") \
+                and any(c.isalpha() for c in s["screen_text"]):
+            lesson = DT.teach(s["screen_text"], s.get("screen_menu", False), goal)
+            # Stall guard: if the same screen persists after several autopilot presses,
+            # the teacher button isn't advancing it (e.g. Oak's "which do you want?" which
+            # needs a WALK, not A) -- hand control back to the model to break the loop.
+            same = s["screen_text"] == dlg_last
+            dlg_reps = dlg_reps + 1 if same else 0
+            dlg_last = s["screen_text"]
+            if lesson and dlg_reps < 4:
+                btn, think = lesson
+                act = {"action": "press", "buttons": f"{btn}:8 wait:60"}
+                emu.run(f"{btn}:8 wait:90")
+                log.write(json.dumps({"step": step, "goal": goal, "facts": facts,
+                    "state_text": st, "ctx": ctx, "action": act, "exec": "dialog-teacher",
+                    "think": think, "snap": s, "mode": "dialog_teacher"}) + "\n")
+                log.flush()
+                continue
         # stall hint: if wedged, tell the model it's stuck so it varies its action
         key = (s["map"], s["x"], s["y"], s["in_battle"])
         stall = stall + 1 if key == last_key else 0

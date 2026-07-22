@@ -27,6 +27,33 @@ of times before `distill` — they all append to the same `games/<game>/data/` p
 `games/<game>/adapter.py` (subclass `pipeline/adapter.py:GameAdapter`) and drop data into
 `games/<game>/knowledge/`. Full design: `docs/superpowers/specs/2026-07-21-game-agnostic-skill-engine.md`.
 
+### How the fleet plays and learns
+
+The model chooses **high-level actions** (`walk_to`, `interact`, `fight`, `heal_at_center`,
+primitive `press`, …); the harness turns them into button scripts. Three mechanisms give it
+a human's perception and a directed plan — each is game-general in form, per-game in data:
+
+- **Screen perception** (`games/<game>/screen.py`) — decodes the visible tile-map to text
+  and reads the menu cursor from RAM, so a dialog/menu shows up in the model's STATE as
+  `SCREEN: "…"`. The model reads prompts (`want it? YES/NO`) and presses the right button
+  itself — no blind fixed-timing macros.
+- **Dialog teacher** (`games/<game>/dialog_teacher.py`) — a rule-teacher over that decoded
+  screen supplies the ground-truth button for menus/text-boxes. In the fleet it auto-drives
+  dialogs *and* logs each `SCREEN → button` example for distillation (this is `guide` mode).
+- **Walkthrough subgoals** (`games/<game>/subgoals.json` + `subgoals.py`) — an ordered,
+  grounded checklist (objective + map-conditional hint + a done-condition checkable from the
+  snapshot). The current subgoal becomes the model's GOAL, advancing as conditions fire, so
+  the fleet *sequences* the game instead of wandering. This is `learn` mode's spine.
+
+**The fleet** (`pipeline/fleet_auto.py`, `autoplay.py`) runs many model-driven runs in
+parallel, each logging every decision for DAgger mining; `pipeline/fleet_watchdog.py`
+keeps a fixed roster alive (restarts dead/wedged runs from their persisted progress).
+`pipeline/build_dataset.py` folds the mined corrections + demos into the next dataset;
+`make_v4.py` shows how a version is composed (prior good data + new-skill demos, with the
+action balance kept sane). `distill` then trains the LoRA, merges, builds **both** quants
+(`q8_0` for accuracy, `q4_K_M` for throughput on bandwidth-bound hardware) and imports both
+into Ollama as `pokered-8b-vN` / `-vN-q4`.
+
 ### Layout
 
 ```
@@ -37,8 +64,11 @@ pipeline/                # game-AGNOSTIC core (adapter ABC, dataset build, LoRA,
 games/<game>/            # per-game package
   adapter.py             # implements GameAdapter
   context.py executor.py navigate.py   # game knowledge + RAM/exec (Pokémon Red)
+  screen.py              # tile-map -> on-screen text perception
+  dialog_teacher.py      # rule-teacher: decoded screen -> correct button (guide mode)
+  subgoals.json subgoals.py   # grounded walkthrough spine (learn mode)
   knowledge/             # facts (json + gamedata)  [tracked]
-  data/                  # collected training examples (all 3 modes)  [gitignored]
+  data/ data_demos/      # collected training examples (all 3 modes)  [gitignored]
 training/                # local heavy artifacts: .venv/, llama.cpp/, runs/ (models)  [gitignored]
 src/                     # the Rust emulator (already any-GB-game)
 ```

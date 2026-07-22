@@ -74,8 +74,17 @@ def main():
         if demo_f.exists() else []
     demo_ex = _dedup_cap(demo_ex, cap=9999)
     auto_weighted += demo_ex * 3
-    print(f"autoplay corrections (deduped+capped, weighted): {len(auto_weighted) - len(demo_ex)*3} | "
-          f"starter demos (deduped, 3x): {len(demo_ex)} -> {len(demo_ex)*3}")
+    # Perception-driven DIALOG demos (SCREEN -> button): teach the model to DRIVE menus/
+    # dialogs by reading the screen instead of a blind macro. High-value + few, weight 4x.
+    dlg_f = _bootstrap.GAME_DIR / "data_demos" / "dialog.jsonl"
+    dlg_ex = [_json.loads(l) for l in dlg_f.read_text().splitlines() if l.strip()] \
+        if dlg_f.exists() else []
+    dlg_ex = _dedup_cap(dlg_ex, cap=9999)
+    auto_weighted += dlg_ex * 4
+    print(f"autoplay corrections (deduped+capped, weighted): "
+          f"{len(auto_weighted) - len(demo_ex)*3 - len(dlg_ex)*4} | "
+          f"starter demos (deduped, 3x): {len(demo_ex)} -> {len(demo_ex)*3} | "
+          f"dialog demos (deduped, 4x): {len(dlg_ex)} -> {len(dlg_ex)*4}")
 
     sets = {
         "battle": synth_battle.generate(),
