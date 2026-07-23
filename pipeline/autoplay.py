@@ -114,21 +114,20 @@ def run(state_path: str, model: str, url: str, steps: int, tag: str):
         # is the fix for long-horizon progression -- the fleet could navigate but not
         # sequence the game (got the parcel, then wandered instead of delivering it).
         sg_hint = ""
+        goal = objective(s["badges"], has_pokedex=bool(past_gate),
+                         has_parcel=has_parcel, has_party=has_party)
+        # The walkthrough subgoal is an OVERWORLD directive. In a battle it must NOT apply
+        # -- otherwise the "go north" goal + walk hint makes the model try to WALK instead
+        # of fight (breaks every battle, incl. Brock). Still advance the index for tracking.
         if SG is not None:
             new_idx = SG.advance(sg_idx, s)
             if new_idx != sg_idx:
                 sgidx_path.write_text(str(new_idx))   # persist progress across restarts
             sg_idx = new_idx
             sg = SG.current(sg_idx)
-            if sg:
+            if sg and not s["in_battle"]:
                 goal = sg["objective"]
                 sg_hint = SG.hint_for(sg, s)
-            else:
-                goal = objective(s["badges"], has_pokedex=bool(past_gate),
-                                 has_parcel=has_parcel, has_party=has_party)
-        else:
-            goal = objective(s["badges"], has_pokedex=bool(past_gate),
-                             has_parcel=has_parcel, has_party=has_party)
 
         # progress heartbeat
         if s["badges"] != start_badges:
