@@ -154,11 +154,12 @@ class Emu:
             snap = self.snapshot()
             mx, my = snap["x"], snap["y"]
             tx, ty = int(act["x"]), int(act["y"])
-            # INTERIOR EXIT: leaving a building is a door WARP (to LAST_MAP), not an
-            # overworld edge. If the target is a building exit, walk onto it and step
-            # THROUGH (arriving on the tile isn't leaving — you must step off the mat).
+            # WARP TARGET: many transitions are door/gate WARPS, not overworld edges --
+            # building exits, and also gate warps like Viridian Forest -> North Gate at
+            # (1,0). Arriving ON the warp tile isn't enough; you must step THROUGH it. So
+            # if the model targets ANY warp tile, walk onto it and step off to trigger it.
             mapn = NAV.registry().get(snap["map"], {}).get("name", "")
-            exits = [(x, y) for x, y, lbl in C.map_warps(mapn) if lbl.startswith("Exit")]
+            exits = [(x, y) for x, y, lbl in C.map_warps(mapn)]
             if (tx, ty) in exits:
                 # walk FULLY onto the exit tile (steps_to_script only does one segment)
                 for _ in range(8):
@@ -169,8 +170,24 @@ class Emu:
                     if not st:
                         break
                     self.run(NAV.steps_to_script(st, cap=10))
-                # now step THROUGH the door (down is standard; try others if needed)
-                for d in ("down", "left", "right", "up"):
+                # Step THROUGH the warp. The trigger direction is OFF the warp's edge:
+                # a top-row warp (y0, e.g. Viridian Forest -> North Gate) needs UP, a
+                # bottom warp (building door) needs DOWN, side warps left/right. Try the
+                # edge-appropriate direction first, RE-STEPPING onto the warp between tries
+                # so an earlier wrong direction doesn't carry the player away from it.
+                gg2 = NAV.grid(snap["map"])
+                w2, h2 = (gg2[1], gg2[2]) if gg2 else (99, 99)
+                order = []
+                if ty <= 0: order.append("up")
+                if ty >= h2 - 1: order.append("down")
+                if tx <= 0: order.append("left")
+                if tx >= w2 - 1: order.append("right")
+                for d in order + ["down", "up", "left", "right"]:
+                    s3 = self.snapshot()
+                    if (s3["x"], s3["y"]) != (tx, ty):        # re-center on the warp tile
+                        st = NAV.bfs_path(s3["map"], (s3["x"], s3["y"]), (tx, ty))
+                        if st:
+                            self.run(NAV.steps_to_script(st, cap=10))
                     before = self.snapshot()["map"]
                     self.run(f"{d}:16 wait:30")
                     if self.snapshot()["map"] != before:
