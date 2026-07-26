@@ -38,7 +38,14 @@
     {
       "id": "through-forest",
       "objective": "Travel north through Route 2 into VIRIDIAN FOREST, then out its north gate to Pewter City. Battle the Bug Catchers on the way to level up (aim for level 12-14 before Brock).",
-      "hint": "Route 2 (map 13) -> Viridian Forest (map 51) via its south gate (map 50) -> north gate (map 47) -> Pewter City (map 2). Fight trainers/wild Pokemon in the forest to gain levels; heal at the Pewter Poke Center (map 58) if low.",
+      "hint": "Head north: Route 2 -> Viridian Forest -> north gate -> Pewter City. Fight wild Pokemon/Bug Catchers to level up.",
+      "hint_by_map": {
+        "13": "You are on Route 2. The Viridian Forest SOUTH GATE is at (3,43). walk_to (3,43) to step into the forest.",
+        "50": "You are in the forest South Gate. Go NORTH into Viridian Forest: walk_to (4,0).",
+        "51": "You are in VIRIDIAN FOREST (a tree maze). The NORTH GATE exit to Pewter is at the top-left: walk_to (1,0) -- that tile IS the gate warp and will step you through. Do NOT aim for (10,0). Fight any wild Pokemon that appear.",
+        "47": "You are in the forest North Gate. PEWTER CITY is just north: walk_to (4,0) to step outside into Pewter.",
+        "2": "You reached PEWTER CITY. Pewter Gym (Brock) is on the west side (map 54)."
+      },
       "done": {"type": "reached_map", "maps": [2, 54]}
     },
     {
