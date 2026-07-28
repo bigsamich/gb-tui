@@ -168,6 +168,26 @@ def run(state_path: str, model: str, url: str, steps: int, tag: str):
                     "think": think, "snap": s, "mode": "dialog_teacher"}) + "\n")
                 log.flush()
                 continue
+
+        # GYM HEAL STRATEGY: full HP before the gym AND before the leader. On a gym subgoal,
+        # if any Pokemon is below full HP (and not mid-battle), heal first -- stepping OUT
+        # of the gym to the town Pokecenter if we're inside it. This gives: heal before
+        # entering, and heal again after the gym's trainers chip you down, before the boss.
+        gym = sg.get("gym") if (SG is not None and sg) else None
+        if gym and not s["in_battle"]:
+            hurt = any(p["hp"] < p["max_hp"] for p in s.get("party", []) if p.get("max_hp"))
+            if hurt:
+                if s["map"] == gym["map"]:               # inside the gym -> exit to the town
+                    act = {"action": "walk_to", "x": gym["exit"][0], "y": gym["exit"][1]}
+                else:                                    # in town -> heal at the Pokecenter
+                    act = {"action": "heal_at_center"}
+                res = emu.do(act, s)
+                log.write(json.dumps({"step": step, "goal": goal, "facts": facts,
+                    "state_text": st, "ctx": ctx, "action": act, "exec": res,
+                    "snap": s, "mode": "gym_heal"}) + "\n")
+                log.flush()
+                continue
+
         # stall hint: if wedged, tell the model it's stuck so it varies its action
         key = (s["map"], s["x"], s["y"], s["in_battle"])
         stall = stall + 1 if key == last_key else 0

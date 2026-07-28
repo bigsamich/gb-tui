@@ -52,6 +52,7 @@
       "id": "beat-brock",
       "objective": "Enter PEWTER GYM and defeat Brock to win the BOULDER BADGE.",
       "hint": "Pewter Gym is map 54 (west side of Pewter City). Brock has GEODUDE L12 and ONIX L14, both Rock/Ground. Use WATER or GRASS moves if you have them (super-effective); a Squirtle/Bulbasaur wins easily. With Charmander, rely on repeated physical hits and heal as needed -- avoid Fire/Normal specials. Beating Brock gives Badge bit 0x01.",
+      "gym": {"map": 54, "exit": [4, 13]},
       "done": {"type": "badge", "bit": 1}
     }
   ]
