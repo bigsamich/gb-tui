@@ -58,6 +58,38 @@
       },
       "gym": {"map": 54, "exit": [4, 13]},
       "done": {"type": "badge", "bit": 1}
+    },
+    {
+      "id": "to-route3",
+      "objective": "You won the BOULDER BADGE! Head EAST out of Pewter City onto Route 3, toward Mt. Moon.",
+      "hint": "Leave Pewter City by its EAST edge to reach Route 3 (map 14).",
+      "hint_by_map": {
+        "54": "First LEAVE the gym: walk_to (4,13) to step outside to Pewter City.",
+        "2": "Go EAST out of Pewter City: walk_to the right (east) edge to cross into Route 3."
+      },
+      "done": {"type": "reached_map", "maps": [14, 59, 60, 61, 15, 3]}
+    },
+    {
+      "id": "enter-mt-moon",
+      "objective": "Travel EAST across Route 3 (beat the trainers) to the Mt. Moon entrance and go inside.",
+      "hint": "Route 3 runs EAST to the Mt. Moon cave entrance. Fight the trainers on the way.",
+      "hint_by_map": {
+        "14": "Route 3 goes EAST to Mt. Moon. Fight trainers as you go. walk_to the far EAST end of the route -- the Mt. Moon entrance is there; step onto it to go inside.",
+        "58": "You're in the Poke Center -- exit and head EAST along Route 3 to Mt. Moon."
+      },
+      "done": {"type": "reached_map", "maps": [59, 60, 61, 15, 3]}
+    },
+    {
+      "id": "cross-mt-moon",
+      "objective": "Cross Mt. Moon to its EAST exit (to Route 4, toward Cerulean City). Battle the Team Rocket grunts and Super Nerds inside.",
+      "hint": "Mt. Moon is a 3-floor cave (1F=59, B1F=60, B2F=61). Follow the ladder route to the east exit; fight trainers and heal when low.",
+      "hint_by_map": {
+        "59": "Mt. Moon 1F. Take the ladder at (5,5) down to B1F: walk_to (5,5). (A Hiker sits just below the ladder -- fight him.)",
+        "60": "Mt. Moon B1F. If you just came DOWN from 1F (you're near the top-left ~(5,5)): take the ladder at (21,17) down to B2F -- walk_to (21,17). If you came UP from B2F (you're near the top-right ~(23,3)): go to the EXIT ladder at (27,3) -- walk_to (27,3).",
+        "61": "Mt. Moon B2F. Head to the ladder at (5,7): walk_to (5,7). The only path west runs UP through the fossil column near (12,6); a Super Nerd blocks (12,8) even when beaten -- TAKE A FOSSIL to clear it: walk_to (12,6) and interact (grab the fossil), then continue to (5,7). Fight the Rockets on the way.",
+        "15": "You crossed Mt. Moon -- you're on Route 4! Head EAST (along row y~10) to CERULEAN CITY."
+      },
+      "done": {"type": "reached_map", "maps": [15, 3]}
     }
   ]
 }
