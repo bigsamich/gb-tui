@@ -138,16 +138,23 @@ def run(state_path: str, model: str, url: str, steps: int, tag: str):
             sg = SG.current(sg_idx)
             if sg and not s["in_battle"]:
                 goal = sg["objective"]
-                # SELF-NAVIGATION: no hand-authored per-tile hints. Give only GENERAL
-                # perception and let the model choose + execute:
-                #  - GEOGRAPHY: which edge/warp heads toward the goal (BFS over the game's
-                #    own map graph -- overworld routing, like a Town Map).
-                #  - EXPLORE: for interiors/mazes the router can't route, the run's memory
-                #    of this map's exits (tried -> where / untried) so it can explore.
-                geo = C.route_perception(s["map"], sg.get("target_map"))
-                exp = EXP.perception(exp_mem, s["map"], sg.get("target_map")) \
-                    if EXP is not None else ""
-                sg_hint = "\n".join(x for x in (geo, exp) if x)
+                target = sg.get("target_map")
+                # SELF-NAVIGATION -- only GENERAL perception, model chooses + executes:
+                hop = C.route_hop(s["map"], target) if target is not None else None
+                if hop:
+                    # overworld: the map graph gives a route -> geographic direction
+                    sg_hint = C.route_perception(s["map"], target)
+                elif EXP is not None and s["map"] == target:
+                    # inside the objective's own area -> EXPLORE it (find the boss/puzzle
+                    # by covering unexplored ground); do NOT route back out
+                    sg_hint = EXP.room_perception(exp_mem, s["map"], s["x"], s["y"])
+                elif EXP is not None:
+                    # interior/maze with no computed route -> explore untried warps + ground
+                    warp = EXP.perception(exp_mem, s["map"], target)
+                    room = EXP.room_perception(exp_mem, s["map"], s["x"], s["y"])
+                    sg_hint = "\n".join(x for x in (warp, room) if x)
+                else:
+                    sg_hint = ""
 
         # progress heartbeat
         if s["badges"] != start_badges:
