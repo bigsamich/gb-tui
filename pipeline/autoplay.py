@@ -32,6 +32,10 @@ try:                                    # optional walkthrough-derived subgoal s
     import subgoals as SG
 except ImportError:
     SG = None
+try:                                    # optional exploration+memory (interior self-nav)
+    import explore as EXP
+except ImportError:
+    EXP = None
 
 ROOT = _bootstrap.REPO_ROOT
 RUNS = _bootstrap.GAME_DIR / "autoplay_runs"
@@ -103,8 +107,15 @@ def run(state_path: str, model: str, url: str, steps: int, tag: str):
     # "get parcel", since that done-condition (has item 70) reverts after delivery).
     sgidx_path = ROOT / "run" / f"{stamp}.sgidx"
     sg_idx = int(sgidx_path.read_text()) if sgidx_path.exists() else 0
+    exp_mem = EXP.load(stamp) if EXP is not None else None   # per-run map memory
+    last_pos = None                                          # (map,x,y) for warp discovery
     for step in range(steps):
         s = emu.snapshot()
+        if EXP is not None:                          # learn the map as we move through it
+            cur_pos = (s["map"], s["x"], s["y"])
+            if EXP.observe(exp_mem, last_pos, cur_pos):
+                EXP.save(stamp, exp_mem)
+            last_pos = cur_pos
         seen_maps.add(s["map"])
         # past the Viridian gate once we've reached Route 2 (13) / Viridian Forest (51) / Pewter (2)
         past_gate = bool(seen_maps & {13, 51, 2}) or s["badges"]
@@ -128,10 +139,15 @@ def run(state_path: str, model: str, url: str, steps: int, tag: str):
             if sg and not s["in_battle"]:
                 goal = sg["objective"]
                 # SELF-NAVIGATION: no hand-authored per-tile hints. Give only GENERAL
-                # geographic perception -- which exit/edge from HERE heads toward the goal,
-                # computed by BFS over the game's own map graph (like reading a Town Map).
-                # The model chooses and executes; local exits/warps come from build_facts.
-                sg_hint = C.route_perception(s["map"], sg.get("target_map"))
+                # perception and let the model choose + execute:
+                #  - GEOGRAPHY: which edge/warp heads toward the goal (BFS over the game's
+                #    own map graph -- overworld routing, like a Town Map).
+                #  - EXPLORE: for interiors/mazes the router can't route, the run's memory
+                #    of this map's exits (tried -> where / untried) so it can explore.
+                geo = C.route_perception(s["map"], sg.get("target_map"))
+                exp = EXP.perception(exp_mem, s["map"], sg.get("target_map")) \
+                    if EXP is not None else ""
+                sg_hint = "\n".join(x for x in (geo, exp) if x)
 
         # progress heartbeat
         if s["badges"] != start_badges:

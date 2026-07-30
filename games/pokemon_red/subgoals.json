@@ -4,7 +4,6 @@
     {
       "id": "get-starter",
       "objective": "Get your first Pokemon: in Oak's Lab, walk directly below one of the three Poke Balls and interact to take that starter.",
-      "hint": "The three balls are on the table in Oak's Lab (map 40). Stand on the tile just BELOW a ball (Charmander x6,y4 / Squirtle x7,y4 / Bulbasaur x8,y4), face up, and interact.",
       "done": {
         "type": "party_nonempty"
       }
@@ -12,7 +11,6 @@
     {
       "id": "get-parcel",
       "objective": "Go NORTH from Pallet Town up Route 1 to Viridian City, enter the Poke Mart, and talk to the clerk to receive OAK'S PARCEL.",
-      "hint": "Leave Pallet Town by the north edge -> Route 1 (map 12) -> Viridian City (map 1). The Poke Mart (map 42) is the blue-roof shop; talk to the CLERK behind the counter. You get OAK'S PARCEL.",
       "done": {
         "type": "has_item",
         "item": 70
@@ -22,11 +20,6 @@
     {
       "id": "deliver-parcel",
       "objective": "Return SOUTH to Pallet Town and enter OAK'S LAB (not your own house), then talk to Prof. Oak to deliver OAK'S PARCEL. He gives you the POKEDEX.",
-      "hint": "Head SOUTH toward Pallet Town (map 0): from Viridian City go down Route 1 to Pallet.",
-      "hint_by_map": {
-        "0": "You are in Pallet Town. Oak's Lab is the building at the BOTTOM -- its entrance tile is (12,11). walk_to (12,11) to step inside (do NOT enter Red's house at (5,5)).",
-        "40": "You are INSIDE Oak's Lab. Prof. Oak is at the top-center. walk_to (5,4) to stand directly below him, then INTERACT (face up). Keep going -- the dialog advances and he hands over the POKEDEX; OAK'S PARCEL leaves your bag when done. Do NOT walk to (12,11) or the exit -- go UP to (5,4)."
-      },
       "done": {
         "type": "lost_item",
         "item": 70
@@ -36,13 +29,6 @@
     {
       "id": "reach-route2",
       "objective": "With the POKEDEX, go north again through Viridian City and take the NORTH exit to Route 2 (the man who was blocking the way is gone).",
-      "hint": "Go NORTH toward Route 2: Pallet Town -> Route 1 -> Viridian City -> north edge to Route 2.",
-      "hint_by_map": {
-        "40": "You have the POKEDEX! First LEAVE the lab: walk_to (5,11) to step out to Pallet Town, then head north.",
-        "0": "Go NORTH out of Pallet Town: walk_to the TOP edge (around y1) to cross into Route 1.",
-        "12": "Continue NORTH up Route 1 to Viridian City (walk_to the top edge).",
-        "1": "Go to the TOP (north) of Viridian City and step off the north edge into Route 2 -- the guard is gone now that you have the POKEDEX. walk_to a north-edge tile (small y)."
-      },
       "done": {
         "type": "reached_map",
         "maps": [
@@ -59,14 +45,6 @@
     {
       "id": "through-forest",
       "objective": "Travel north through Route 2 into VIRIDIAN FOREST, then out its north gate to Pewter City. Battle the Bug Catchers on the way to level up (aim for level 12-14 before Brock).",
-      "hint": "Head north: Route 2 -> Viridian Forest -> north gate -> Pewter City. Fight wild Pokemon/Bug Catchers to level up.",
-      "hint_by_map": {
-        "13": "You are on Route 2. The Viridian Forest SOUTH GATE is at (3,43). walk_to (3,43) to step into the forest.",
-        "50": "You are in the forest South Gate. Go NORTH into Viridian Forest: walk_to (4,0).",
-        "51": "You are in VIRIDIAN FOREST (a tree maze). The NORTH GATE exit to Pewter is at the top-left: walk_to (1,0) -- that tile IS the gate warp and will step you through. Do NOT aim for (10,0). Fight any wild Pokemon that appear.",
-        "47": "You are in the forest North Gate. PEWTER CITY is just north: walk_to (4,0) to step outside into Pewter.",
-        "2": "You reached PEWTER CITY. Pewter Gym (Brock) is on the west side (map 54)."
-      },
       "done": {
         "type": "reached_map",
         "maps": [
@@ -79,11 +57,6 @@
     {
       "id": "beat-brock",
       "objective": "Enter PEWTER GYM and defeat Brock to win the BOULDER BADGE.",
-      "hint": "Brock has GEODUDE L12 and ONIX L14 (Rock/Ground). Use WATER or GRASS moves (super-effective); a Squirtle/Bulbasaur wins. Beating Brock gives the Boulder Badge.",
-      "hint_by_map": {
-        "2": "You are in Pewter City. The GYM entrance is at (16,17): walk_to (16,17) to go inside.",
-        "54": "You are INSIDE Pewter Gym. Brock is at the TOP of the room. walk_to (5,2) to head UP to him -- a junior trainer challenges you partway (fight and beat them), then you reach Brock (fight him with Water/Grass moves). Do NOT walk to the exit at (4,13) -- go UP."
-      },
       "gym": {
         "map": 54,
         "exit": [
@@ -100,11 +73,6 @@
     {
       "id": "to-route3",
       "objective": "You won the BOULDER BADGE! Head EAST out of Pewter City onto Route 3, toward Mt. Moon.",
-      "hint": "Leave Pewter City by its EAST edge to reach Route 3 (map 14).",
-      "hint_by_map": {
-        "54": "First LEAVE the gym: walk_to (4,13) to step outside to Pewter City.",
-        "2": "Go EAST out of Pewter City: walk_to the right (east) edge to cross into Route 3."
-      },
       "done": {
         "type": "reached_map",
         "maps": [
@@ -121,11 +89,6 @@
     {
       "id": "enter-mt-moon",
       "objective": "Travel EAST across Route 3 (beat the trainers) to the Mt. Moon entrance and go inside.",
-      "hint": "Route 3 runs EAST to the Mt. Moon cave entrance. Fight the trainers on the way.",
-      "hint_by_map": {
-        "14": "Route 3 goes EAST to Mt. Moon. Fight trainers as you go. walk_to the far EAST end of the route -- the Mt. Moon entrance is there; step onto it to go inside.",
-        "58": "You're in the Poke Center -- exit and head EAST along Route 3 to Mt. Moon."
-      },
       "done": {
         "type": "reached_map",
         "maps": [
@@ -141,13 +104,6 @@
     {
       "id": "cross-mt-moon",
       "objective": "Cross Mt. Moon to its EAST exit (to Route 4, toward Cerulean City). Battle the Team Rocket grunts and Super Nerds inside.",
-      "hint": "Mt. Moon is a 3-floor cave (1F=59, B1F=60, B2F=61). Follow the ladder route to the east exit; fight trainers and heal when low.",
-      "hint_by_map": {
-        "59": "Mt. Moon 1F. Take the ladder at (5,5) down to B1F: walk_to (5,5). (A Hiker sits just below the ladder -- fight him.)",
-        "60": "Mt. Moon B1F. If you just came DOWN from 1F (you're near the top-left ~(5,5)): take the ladder at (21,17) down to B2F -- walk_to (21,17). If you came UP from B2F (you're near the top-right ~(23,3)): go to the EXIT ladder at (27,3) -- walk_to (27,3).",
-        "61": "Mt. Moon B2F. Head to the ladder at (5,7): walk_to (5,7). The only path west runs UP through the fossil column near (12,6); a Super Nerd blocks (12,8) even when beaten -- TAKE A FOSSIL to clear it: walk_to (12,6) and interact (grab the fossil), then continue to (5,7). Fight the Rockets on the way.",
-        "15": "You crossed Mt. Moon -- you're on Route 4! Head EAST (along row y~10) to CERULEAN CITY."
-      },
       "done": {
         "type": "reached_map",
         "maps": [
