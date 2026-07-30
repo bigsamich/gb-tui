@@ -176,6 +176,86 @@ def map_connections(map_name: str) -> str:
             + ", ".join(parts) + ".")
 
 
+def _warps_raw(map_name: str):
+    """[(x, y, dest_map_id)] for FIXED warps (skip LAST_MAP, which is dynamic)."""
+    import navigate as NAV
+    f = ASSETS / "gamedata" / "maps" / "objects" / f"{map_name}.asm"
+    if not f.exists():
+        return []
+    name2id = _name_to_id()
+    out = []
+    for m in _re.finditer(r'warp_event\s+(\d+),\s*(\d+),\s*(\w+),\s*\d+', f.read_text()):
+        x, y, dest = int(m.group(1)), int(m.group(2)), m.group(3)
+        if dest == "LAST_MAP":
+            continue
+        camel = "".join(w.title() for w in dest.split("_"))   # MT_MOON_1F -> MtMoon1F
+        did = name2id.get(camel)
+        if did is not None:
+            out.append((x, y, did))
+    return out
+
+
+@lru_cache(maxsize=1)
+def _world_graph():
+    """{map_id: [(neighbor_id, hop)]} over the whole game: edge connections + fixed warps.
+    Built from the game's own map data -- no hand-authoring. Lets us compute, generally,
+    the next step from ANY map toward ANY goal (BFS), instead of hand-written waypoints."""
+    import navigate as NAV
+    reg = NAV.registry()
+    g = {}
+    for mid, e in reg.items():
+        nm = e.get("name", "")
+        edges = []
+        for d, nbr in (NAV.connections(mid) or {}).items():
+            edges.append((nbr, ("edge", d, reg.get(nbr, {}).get("name", ""))))
+        for x, y, did in _warps_raw(nm):
+            edges.append((did, ("warp", x, y, reg.get(did, {}).get("name", ""))))
+        g[mid] = edges
+    return g
+
+
+def route_hop(cur_id: int, goal_id: int):
+    """BFS the map graph; return the FIRST hop (edge/warp) on the shortest route
+    cur -> goal, or None. General geographic perception -- the way a player reads a
+    Town Map, not a per-tile hint."""
+    from collections import deque
+    if goal_id is None or cur_id == goal_id:
+        return None
+    g = _world_graph()
+    seen = {cur_id}
+    q = deque()
+    for nbr, hop in g.get(cur_id, []):
+        if nbr not in seen:
+            seen.add(nbr)
+            q.append((nbr, hop))          # remember the FIRST hop of this path
+    while q:
+        m, first = q.popleft()
+        if m == goal_id:
+            return first
+        for nbr, hop in g.get(m, []):
+            if nbr not in seen:
+                seen.add(nbr)
+                q.append((nbr, first))
+    return None
+
+
+def route_perception(cur_id: int, goal_id: int) -> str:
+    """One line of geographic perception: which exit/edge from HERE heads toward the goal."""
+    hop = route_hop(cur_id, goal_id)
+    if hop:
+        if hop[0] == "edge":
+            return f"GEOGRAPHY: your objective lies beyond the {hop[1].upper()} edge of this map (toward {hop[2]})."
+        return f"GEOGRAPHY: the route to your objective leaves this map via the exit/stairs at ({hop[1]},{hop[2]}) (to {hop[3]})."
+    # No route via edges/fixed warps -> the goal is OUTSIDE this building/area. Its only way
+    # out is the LAST_MAP door (dynamic, not in the static graph). Point at that Exit.
+    import navigate as NAV
+    nm = NAV.registry().get(cur_id, {}).get("name", "")
+    exits = [(x, y) for x, y, lbl in map_warps(nm) if lbl.startswith("Exit")]
+    if exits:
+        return f"GEOGRAPHY: your objective is outside this building -- leave via the Exit at {exits[0]}."
+    return ""
+
+
 def map_facts(map_name: str) -> str:
     """FACTS block for overworld: connections + doors/warps + encounter table."""
     _, _, _, enc = _db()

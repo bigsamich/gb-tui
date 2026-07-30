@@ -127,7 +127,11 @@ def run(state_path: str, model: str, url: str, steps: int, tag: str):
             sg = SG.current(sg_idx)
             if sg and not s["in_battle"]:
                 goal = sg["objective"]
-                sg_hint = SG.hint_for(sg, s)
+                # SELF-NAVIGATION: no hand-authored per-tile hints. Give only GENERAL
+                # geographic perception -- which exit/edge from HERE heads toward the goal,
+                # computed by BFS over the game's own map graph (like reading a Town Map).
+                # The model chooses and executes; local exits/warps come from build_facts.
+                sg_hint = C.route_perception(s["map"], sg.get("target_map"))
 
         # progress heartbeat
         if s["badges"] != start_badges:
