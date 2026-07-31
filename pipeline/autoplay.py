@@ -125,36 +125,40 @@ def run(state_path: str, model: str, url: str, steps: int, tag: str):
         # is the fix for long-horizon progression -- the fleet could navigate but not
         # sequence the game (got the parcel, then wandered instead of delivering it).
         sg_hint = ""
-        goal = objective(s["badges"], has_pokedex=bool(past_gate),
-                         has_parcel=has_parcel, has_party=has_party)
-        # The walkthrough subgoal is an OVERWORLD directive. In a battle it must NOT apply
-        # -- otherwise the "go north" goal + walk hint makes the model try to WALK instead
-        # of fight (breaks every battle, incl. Brock). Still advance the index for tracking.
+        # Advance the subgoal index every step (progress tracking), regardless of battle.
+        sg = None
         if SG is not None:
             new_idx = SG.advance(sg_idx, s)
             if new_idx != sg_idx:
                 sgidx_path.write_text(str(new_idx))   # persist progress across restarts
             sg_idx = new_idx
             sg = SG.current(sg_idx)
-            if sg and not s["in_battle"]:
-                goal = sg["objective"]
-                target = sg.get("target_map")
-                # SELF-NAVIGATION -- only GENERAL perception, model chooses + executes:
-                hop = C.route_hop(s["map"], target) if target is not None else None
-                if hop:
-                    # overworld: the map graph gives a route -> geographic direction
-                    sg_hint = C.route_perception(s["map"], target)
-                elif EXP is not None and s["map"] == target:
-                    # inside the objective's own area -> EXPLORE it (find the boss/puzzle
-                    # by covering unexplored ground); do NOT route back out
-                    sg_hint = EXP.room_perception(exp_mem, s["map"], s["x"], s["y"])
-                elif EXP is not None:
-                    # interior/maze with no computed route -> explore untried warps + ground
-                    warp = EXP.perception(exp_mem, s["map"], target)
-                    room = EXP.room_perception(exp_mem, s["map"], s["x"], s["y"])
-                    sg_hint = "\n".join(x for x in (warp, room) if x)
-                else:
-                    sg_hint = ""
+        # GOAL: in a BATTLE the goal must be to WIN THE FIGHT -- a navigational goal ("go to
+        # Cerulean") pulls the model into walk_to even mid-battle (it can't flee a trainer
+        # and wedges). The overworld subgoal only applies OUT of battle.
+        if s["in_battle"]:
+            goal = ("You are in a BATTLE. Pick the best MOVE to defeat the enemy (fight); "
+                    "switch or use an item if you must. Do NOT try to walk.")
+        elif sg:
+            goal = sg["objective"]
+            target = sg.get("target_map")
+            # SELF-NAVIGATION -- only GENERAL perception, model chooses + executes:
+            hop = C.route_hop(s["map"], target) if target is not None else None
+            if hop:
+                # overworld: the map graph gives a route -> geographic direction
+                sg_hint = C.route_perception(s["map"], target)
+            elif EXP is not None and s["map"] == target:
+                # inside the objective's own area -> EXPLORE it (find the boss/puzzle by
+                # covering unexplored ground); do NOT route back out
+                sg_hint = EXP.room_perception(exp_mem, s["map"], s["x"], s["y"])
+            elif EXP is not None:
+                # interior/maze with no computed route -> explore untried warps + ground
+                warp = EXP.perception(exp_mem, s["map"], target)
+                room = EXP.room_perception(exp_mem, s["map"], s["x"], s["y"])
+                sg_hint = "\n".join(x for x in (warp, room) if x)
+        else:
+            goal = objective(s["badges"], has_pokedex=bool(past_gate),
+                             has_parcel=has_parcel, has_party=has_party)
 
         # progress heartbeat
         if s["badges"] != start_badges:
