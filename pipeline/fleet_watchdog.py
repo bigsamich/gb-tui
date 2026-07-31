@@ -31,15 +31,8 @@ V6Q4 = "pokered-8b-v6-q4"
 
 # (tag, model, state-file) -- the fleet we keep alive.
 FLEET = [
-    ("charmander-q8-0", V6Q4, "auto-charmander-q8-0.state"),
-    ("squirtle-q8-1", V6Q4, "auto-squirtle-q8-1.state"),
-    ("bulbasaur-q8-2", V6Q4, "auto-bulbasaur-q8-2.state"),
-    ("charmander-q4-0", V6Q4, "auto-charmander-q4-0.state"),
     ("squirtle-q4-1", V6Q4, "auto-squirtle-q4-1.state"),
     ("bulbasaur-q4-2", V6Q4, "auto-bulbasaur-q4-2.state"),
-    ("charmander-q4-3", V6Q4, "auto-charmander-q4-3.state"),
-    ("squirtle-q4-4", V6Q4, "auto-squirtle-q4-4.state"),
-    ("bulbasaur-q4-5", V6Q4, "auto-bulbasaur-q4-5.state"),
     ("charmander-q4-6", V6Q4, "auto-charmander-q4-6.state"),
     ("squirtle-q4-7", V6Q4, "auto-squirtle-q4-7.state"),
     ("bulbasaur-q4-8", V6Q4, "auto-bulbasaur-q4-8.state"),
