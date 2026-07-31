@@ -81,6 +81,9 @@ def main():
     ap.add_argument("--max-len", type=int, default=2048)
     ap.add_argument("--batch", type=int, default=4)
     ap.add_argument("--accum", type=int, default=16)
+    ap.add_argument("--target-modules", default="q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj",
+                    help="comma-separated LoRA targets; for MoE use attention-only "
+                         "(q_proj,k_proj,v_proj,o_proj) so it doesn't explode across experts")
     ap.add_argument("--smoke", action="store_true",
                     help="tiny run: Qwen3-0.6B, 64 examples, 8 steps")
     args = ap.parse_args()
@@ -102,8 +105,7 @@ def main():
     lora = LoraConfig(
         r=args.rank, lora_alpha=args.rank * 2, lora_dropout=0.05, bias="none",
         task_type="CAUSAL_LM",
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
-                        "gate_proj", "up_proj", "down_proj"])
+        target_modules=[m.strip() for m in args.target_modules.split(",") if m.strip()])
     model = get_peft_model(model, lora)
     model.print_trainable_parameters()
 
